@@ -79,17 +79,26 @@
             <span class="ai-status" id="ai-status">READY WHEN A LOT IS SCREENED</span>
           </div>
           <p class="muted">
-            Ask about the latest lot. Answers use its measured results and clearly
-            identify whether a local language model or evidence-based fallback responded.
+            Chat with a free local Ollama model about the latest lot, forecasts, risk,
+            and next review steps. Your chat stays in this browser session.
           </p>
+          <div class="ai-suggestions" aria-label="Suggested questions">
+            <button class="ai-suggestion" type="button" data-question="Summarize the highest-risk devices and cite their screening evidence.">Highest risks</button>
+            <button class="ai-suggestion" type="button" data-question="Explain what the 168-hour forecast can and cannot tell us.">Forecast limits</button>
+            <button class="ai-suggestion" type="button" data-question="What should the QA engineer verify next?">Next review steps</button>
+          </div>
+          <div id="ai-chat-log" class="ai-chat-log" aria-live="polite">
+            <p class="ai-chat-message assistant">
+              Screen a lot, then ask questions about its evidence. Ollama runs the model
+              locally; no AI API subscription or external AI service is required.
+            </p>
+          </div>
           <form id="ai-form" class="ai-form">
             <label class="sr-only" for="ai-question">Question about the latest screening</label>
-            <input id="ai-question" maxlength="500" placeholder="Which device needs review first, and why?" />
-            <button class="button button-primary" type="submit" id="ai-ask">Ask copilot</button>
+            <input id="ai-question" maxlength="1000" placeholder="Ask about the latest screening…" autocomplete="off" />
+            <button class="button button-primary" type="submit" id="ai-ask">Send</button>
+            <button class="button button-secondary" type="button" id="ai-clear">Clear</button>
           </form>
-          <p class="ai-answer" id="ai-answer" role="status">
-            Run a screening to generate a lot-specific engineering briefing.
-          </p>
           <div class="ai-evidence" id="ai-evidence"></div>
         </article>
         <article class="card history-card">

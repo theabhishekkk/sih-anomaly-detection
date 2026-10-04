@@ -52,27 +52,58 @@ parameter-units per hour; otherwise it is estimated from the known-good
 reference cohort. Failure direction can be set to higher or lower readings.
 
 The feature attributions are exact Shapley values for the detector's additive
-squared robust-distance score relative to the calibrated median baseline. The
-optional local-language explanation can use Ollama when configured:
+squared robust-distance score relative to the calibrated median baseline.
+
+## Free local AI with Ollama
+
+The dashboard can run multi-turn, screening-evidence-grounded chat and device
+explanations using a free local model. No API key, subscription, or external
+AI provider is used. On Windows, from the repository root run:
 
 ```powershell
-$env:OLLAMA_MODEL = "qwen3:8b"
-$env:OLLAMA_URL = "http://127.0.0.1:11434"
+.\scripts\start-local-ai.ps1
 ```
 
-Without a configured/reachable Ollama service, the dashboard explicitly shows
-the deterministic screening evidence instead of pretending an LLM response was
-generated.
+The first run installs Ollama if needed and downloads `qwen3:4b`; allow a few
+gigabytes of disk space and time for that download. Later runs reuse the model.
+The script starts Ollama, sets `OLLAMA_MODEL=qwen3:4b`, and starts the dashboard
+with the Ollama service on `http://127.0.0.1:11434`. The 4B model is intended as
+a free, practical local default; larger Ollama models can be selected by setting
+`OLLAMA_MODEL` and pulling that model first.
+
+The AI panel supports follow-up questions about the current lot, forecast
+limitations, risk evidence, and QA review steps. It sends only recent chat turns
+and bounded screening evidence to Ollama. Answers are decision support: they do
+not approve/reject devices, and qualified engineering review remains required.
+If the model is unavailable, the app reports its state and the briefing routes
+fall back to clearly labeled deterministic evidence; interactive chat does not
+pretend that fallback is a generated AI answer.
+
+On a machine where Ollama is already installed, the equivalent manual setup is:
+
+```powershell
+ollama pull qwen3:4b
+$env:OLLAMA_MODEL = "qwen3:4b"
+$env:OLLAMA_URL = "http://127.0.0.1:11434"
+backend\venv\Scripts\python -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
+```
+
+Ollama runs on the same machine as the app (or a private network endpoint you
+control). The free Render service in this repository does not host Ollama or
+have access to a model on your PC; its AI status will correctly report local
+Ollama as unconfigured unless you separately provide a reachable private model
+service. Do not expose Ollama's unauthenticated port directly to the public
+internet. Without a reachable local model, the demo briefing remains
+evidence-based and explicitly labeled.
 
 ## Dashboard capabilities
 
 After sign-in, reviewers can calibrate and screen production CSVs, search/filter/
 sort the device evidence, inspect measured and forecast values, export the
 current report to CSV, revisit the latest 25 saved screening runs (100 are
-retained), and record auditable QA decisions. The AI screening copilot summarizes
-only the latest run's evidence; configure Ollama for a local model response, or
-it provides a clearly labeled deterministic evidence summary. AI output never
-releases or rejects hardware automatically.
+retained), record auditable QA decisions, and use the multi-turn AI copilot with
+the latest run's evidence. AI output never releases or rejects hardware
+automatically.
 
 ## Persistence and operational limits
 

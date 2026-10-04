@@ -5,6 +5,8 @@ const state = {
   runs: [],
   selected: null,
   user: null,
+  aiMessages: [],
+  aiStatus: null,
 };
 const $ = (selector) => document.querySelector(selector);
 let csrfToken;
@@ -233,6 +235,8 @@ function renderHistory(runs) {
       try {
         const result = await requestJson(`/api/runs/${run.id}`);
         state.demoMode = false;
+        state.aiMessages = [];
+        renderAiChat([]);
         renderReport(result.report, result.created_at);
         $('#lot-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (error) {
@@ -311,6 +315,9 @@ async function refreshState() {
     renderAudit(data.decisions);
     renderHistory(data.runs);
     state.demoMode = false;
+    updateAiStatus().catch((error) => {
+      $('#ai-status').textContent = `AI STATUS UNKNOWN · ${error.message}`;
+    });
     $('#demo-button').disabled = false;
   } catch (error) {
     setMessage('#screening-message', `Could not load saved state: ${error.message}`, 'error');
@@ -444,6 +451,8 @@ async function screenLot() {
       throw new Error('Choose a production-lot CSV, or use the interactive demo.');
     }
     renderReport(result, result.created_at);
+    state.aiMessages = [];
+    renderAiChat([]);
     renderHistory((await requestJson('/api/runs')).runs);
     setMessage(
       '#screening-message',
@@ -494,36 +503,84 @@ function exportDevices() {
 
 async function askCopilot(event) {
   event.preventDefault();
+  const question = $('#ai-question').value.trim();
+  if (!question) return;
+  const nextMessages = [...state.aiMessages, { role: 'user', content: question }].slice(-12);
   const button = $('#ai-ask');
-  busy(button, true, 'Reviewing evidence…');
-  $('#ai-answer').textContent = 'Reviewing the latest measured evidence…';
+  busy(button, true, 'Thinking…');
+  $('#ai-question').disabled = true;
   $('#ai-evidence').replaceChildren();
+  renderAiChat([...nextMessages, { role: 'assistant', content: 'Reviewing screening evidence…', pending: true }]);
   try {
-    const endpoint = state.demoMode ? '/api/demo/briefing' : '/api/ai/briefing';
+    const endpoint = state.demoMode ? '/api/demo/chat' : '/api/ai/chat';
     const result = await requestJson(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question: $('#ai-question').value.trim() }),
+      body: JSON.stringify({ messages: nextMessages }),
     });
-    $('#ai-answer').textContent = result.answer;
+    state.aiMessages = [...nextMessages, { role: 'assistant', content: result.answer }].slice(-12);
     $('#ai-status').textContent = result.llm_status === 'available'
       ? result.source.toUpperCase()
       : result.llm_status === 'demo_evidence'
-        ? 'READ-ONLY DEMO EVIDENCE'
-      : result.llm_status === 'not_configured'
-        ? 'EVIDENCE-BASED · NO MODEL CONFIGURED'
-        : 'EVIDENCE-BASED · MODEL UNAVAILABLE';
-    for (const device of result.evidence.highest_risk_devices) {
-      const item = document.createElement('span');
-      item.className = 'evidence-chip';
-      item.textContent = `${device.device_id} · ${device.parameter} · score ${formatNumber(device.anomaly_score)}`;
-      $('#ai-evidence').append(item);
-    }
+        ? 'DEMO · EVIDENCE-BASED FALLBACK'
+        : 'LOCAL AI UNAVAILABLE · EVIDENCE FALLBACK';
+    $('#ai-question').value = '';
+    renderAiChat(state.aiMessages);
+    $('#ai-evidence').textContent =
+      `${result.evidence.flagged_devices} flagged of ${result.evidence.total_devices} devices in context`;
   } catch (error) {
-    $('#ai-answer').textContent = error.message;
-    $('#ai-status').textContent = 'BRIEFING UNAVAILABLE';
+    if (error.status === 503) $('#ai-status').textContent = 'LOCAL OLLAMA UNAVAILABLE';
+    renderAiChat([...state.aiMessages, { role: 'user', content: question }, {
+      role: 'assistant',
+      content: error.message,
+    }]);
   } finally {
     busy(button, false);
+    $('#ai-question').disabled = false;
+    $('#ai-question').focus();
+  }
+}
+
+function renderAiChat(messages) {
+  const log = $('#ai-chat-log');
+  log.replaceChildren();
+  const displayMessages = messages.length
+    ? messages
+    : [{
+      role: 'assistant',
+      content: 'Screen a lot, then ask questions about its evidence. Ollama runs the model locally; no AI API subscription or external AI service is required.',
+    }];
+  for (const message of displayMessages) {
+    const bubble = document.createElement('p');
+    bubble.className = `ai-chat-message ${message.role}${message.pending ? ' pending' : ''}`;
+    bubble.textContent = message.content;
+    log.append(bubble);
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+function clearAiChat() {
+  state.aiMessages = [];
+  $('#ai-evidence').replaceChildren();
+  renderAiChat([{
+    role: 'assistant',
+    content: 'Conversation cleared. Ask about the current screening evidence.',
+  }]);
+}
+
+async function updateAiStatus() {
+  const result = await requestJson('/api/ai/status');
+  state.aiStatus = result;
+  const status = $('#ai-status');
+  status.dataset.status = result.status;
+  if (result.status === 'ready') {
+    status.textContent = `LOCAL · ${result.model}`;
+  } else if (result.status === 'model_missing') {
+    status.textContent = `MODEL MISSING · RUN: ${result.setup_command}`;
+  } else if (result.status === 'unavailable') {
+    status.textContent = 'OLLAMA OFFLINE · START THE LOCAL MODEL';
+  } else {
+    status.textContent = 'LOCAL AI NOT CONFIGURED';
   }
 }
 
@@ -684,6 +741,11 @@ async function loadDemo() {
   try {
     const result = await requestJson('/api/demo');
     state.demoMode = true;
+    state.aiMessages = [];
+    renderAiChat([]);
+    $('#ai-status').textContent = state.aiStatus?.status === 'ready'
+      ? `DEMO · LOCAL ${state.aiStatus.model}`
+      : 'DEMO · READ-ONLY EVIDENCE';
     $('#reference-file-name').textContent = 'Demo reference cohort (read-only)';
     $('#screening-file-name').textContent = 'Demo production lot (11 devices)';
     renderCalibration(result.calibration);
@@ -716,6 +778,13 @@ $('#device-search').addEventListener('input', renderDevices);
 $('#device-sort').addEventListener('change', renderDevices);
 $('#export-button').addEventListener('click', exportDevices);
 $('#ai-form').addEventListener('submit', askCopilot);
+$('#ai-clear').addEventListener('click', clearAiChat);
+document.querySelectorAll('.ai-suggestion').forEach((button) => {
+  button.addEventListener('click', () => {
+    $('#ai-question').value = button.dataset.question || '';
+    $('#ai-form').requestSubmit();
+  });
+});
 $('#close-dialog').addEventListener('click', () => $('#device-dialog').close());
 $('#sign-out').addEventListener('click', signOut);
 $('#supabase-login').addEventListener('submit', signInWithSupabase);
