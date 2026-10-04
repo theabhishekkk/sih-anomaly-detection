@@ -1,10 +1,9 @@
-import pytest
-from fastapi.testclient import TestClient
-
 import app as backend_app
-from app import create_app
-from settings import Settings
+import pytest
 import storage
+from app import create_app
+from fastapi.testclient import TestClient
+from settings import Settings
 
 
 @pytest.fixture
@@ -157,8 +156,18 @@ def test_supabase_auth_login_allowlist_and_bearer_protection(tmp_path, monkeypat
 
     with TestClient(create_app(database, settings), base_url="https://testserver") as client:
         assert client.get("/").status_code == 200
-        assert client.get("/api/auth/config").json()["supabase_enabled"] is True
+        auth_config = client.get("/api/auth/config").json()
+        assert auth_config["supabase_enabled"] is True
+        assert "supabase_url" not in auth_config
+        assert "supabase_publishable_key" not in auth_config
         assert client.get("/api/state").status_code == 401
+        demo = client.get("/api/demo")
+        assert demo.status_code == 200
+        assert demo.json()["calibration"]["device_count"] == 30
+        assert demo.json()["report"]["summary"]["total_devices"] == 11
+        assert demo.json()["report"]["summary"]["flagged_devices"] > 0
+        assert storage.load_snapshot(database, "calibration") is None
+        assert storage.load_snapshot(database, "screening") is None
 
         login = client.post(
             "/api/auth/login",
@@ -182,6 +191,52 @@ def test_supabase_auth_login_allowlist_and_bearer_protection(tmp_path, monkeypat
             json={"email": "outsider@example.com", "password": "password"},
         )
         assert rejected.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("supabase_url", "supabase_key", "expected_message"),
+    [
+        (
+            "https://project.supabase.co\nhttps://project.supabase.co",
+            "sb_publishable_test",
+            "SUPABASE_URL must be one HTTPS project URL",
+        ),
+        (
+            "https://project.supabase.co",
+            "sb_secret_test",
+            "must contain the Supabase publishable key",
+        ),
+    ],
+)
+def test_supabase_login_reports_invalid_server_configuration(
+    tmp_path, supabase_url, supabase_key, expected_message
+):
+    database = tmp_path / "supabase-invalid-config.sqlite3"
+    storage.initialize(database)
+    settings = Settings(
+        environment="production",
+        database_url="postgresql+psycopg://user:password@db.example.com/burnin",
+        session_secret="a-production-session-secret-that-is-at-least-32-bytes",
+        oidc_tenant_id="",
+        oidc_client_id="",
+        oidc_client_secret="",
+        oidc_allowed_emails=frozenset(),
+        public_base_url="",
+        ollama_model="",
+        ollama_url="http://127.0.0.1:11434",
+        supabase_url=supabase_url,
+        supabase_publishable_key=supabase_key,
+        auth_allowed_emails=frozenset({"qa@example.com"}),
+    )
+
+    with TestClient(create_app(database, settings)) as client:
+        response = client.post(
+            "/api/auth/login",
+            json={"email": "qa@example.com", "password": "password"},
+        )
+
+    assert response.status_code == 503
+    assert expected_message in response.json()["detail"]
 
 
 def test_production_auth_requires_login_csrf_and_allowlisted_identity(

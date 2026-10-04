@@ -225,7 +225,7 @@ function renderAudit(decisions) {
 async function refreshState() {
   if (authConfig.supabase_enabled && !supabaseSession?.access_token) {
     setMessage('#auth-message', 'Sign in with an allowed QA account.');
-    $('#demo-button').disabled = true;
+    $('#demo-button').disabled = false;
     return;
   }
   try {
@@ -233,6 +233,7 @@ async function refreshState() {
     renderCalibration(data.calibration?.data || null);
     renderReport(data.screening?.data || null, data.screening?.created_at);
     renderAudit(data.decisions);
+    state.demoMode = false;
     const identity = await requestJson('/api/whoami');
     $('#signed-in-user').textContent = identity.user?.name || '';
     $('#sign-out').hidden = !identity.authenticated;
@@ -387,45 +388,6 @@ async function screenLot() {
   }
 }
 
-function createDemoReference() {
-  return Array.from({ length: 30 }, (_, index) => {
-    const value0 = 9.8 + index * 0.014;
-    const delta24 = 0.19 + (index % 5) * 0.009;
-    const forecastError = (index % 7 - 3) * 0.025;
-    return {
-      device_id: `REF-${String(index + 1).padStart(3, '0')}`,
-      lot_id: 'REFERENCE-LOT-01',
-      parameter: 'leakage_current_uA',
-      value_0h: Number(value0.toFixed(3)),
-      value_24h: Number((value0 + delta24).toFixed(3)),
-      value_96h: Number((value0 + delta24 * 4 + forecastError).toFixed(3)),
-      value_168h: Number((value0 + delta24 * 7 + forecastError).toFixed(3)),
-    };
-  });
-}
-
-function createDemoProductionLot() {
-  const normal = Array.from({ length: 11 }, (_, index) => {
-    const value0 = 9.9 + (index % 5) * 0.035;
-    const delta24 = 0.18 + (index % 3) * 0.008;
-    return {
-      device_id: `SIH-${String(index + 1).padStart(3, '0')}`,
-      lot_id: 'DEMO-LOT-07',
-      parameter: 'leakage_current_uA',
-      value_0h: Number(value0.toFixed(3)),
-      value_24h: Number((value0 + delta24).toFixed(3)),
-    };
-  });
-  normal[7] = {
-    device_id: 'SIH-008',
-    lot_id: 'DEMO-LOT-07',
-    parameter: 'leakage_current_uA',
-    value_0h: 10.02,
-    value_24h: 45,
-  };
-  return normal;
-}
-
 function appendSvg(svg, tag, attributes = {}, text = '') {
   const element = document.createElementNS('http://www.w3.org/2000/svg', tag);
   for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
@@ -532,6 +494,8 @@ async function showDevice(device) {
     shapList.append(row);
   }
   $('#device-dialog').showModal();
+  $('.decision-form').hidden = state.demoMode;
+  if (state.demoMode) return;
   try {
     const result = await requestJson(`/api/devices/${encodeURIComponent(device.device_id)}/explain`);
     $('#device-explanation').textContent = result.explanation;
@@ -571,15 +535,36 @@ async function recordDecision(action) {
 }
 
 async function loadDemo() {
+  const button = $('#demo-button');
+  busy(button, true, 'Loading demo…');
+  setMessage('#calibration-message', '');
+  setMessage('#screening-message', '');
   $('#direction').value = 'higher';
   $('#reference-file').value = '';
   $('#screening-file').value = '';
-  state.demoMode = true;
-  $('#reference-file-name').textContent = 'Using built-in demo reference cohort';
-  $('#screening-file-name').textContent = 'Using demo production lot (11 devices)';
-  await calibrate();
-  if (state.calibration) await screenLot();
-  state.demoMode = false;
+  try {
+    const result = await requestJson('/api/demo');
+    state.demoMode = true;
+    $('#reference-file-name').textContent = 'Demo reference cohort (read-only)';
+    $('#screening-file-name').textContent = 'Demo production lot (11 devices)';
+    renderCalibration(result.calibration);
+    renderReport(result.report);
+    renderAudit([]);
+    setMessage(
+      '#calibration-message',
+      `Demo baseline built from ${result.calibration.device_count} known-good devices.`,
+      'success',
+    );
+    setMessage(
+      '#screening-message',
+      `${result.report.summary.flagged_devices} of ${result.report.summary.total_devices} demo devices require review. Demo data is not saved.`,
+      result.report.summary.flagged_devices ? '' : 'success',
+    );
+  } catch (error) {
+    setMessage('#screening-message', `Could not load demo: ${error.message}`, 'error');
+  } finally {
+    busy(button, false);
+  }
 }
 
 setFileName($('#reference-file'), '#reference-file-name');

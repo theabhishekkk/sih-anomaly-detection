@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from time import perf_counter
 from typing import Any, AsyncGenerator
+from urllib.parse import urlsplit
 
 import httpx
 from authlib.integrations.base_client.errors import OAuthError
@@ -19,8 +20,8 @@ from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
-from starlette.requests import Request
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.requests import Request
 
 if __package__:
     from . import storage
@@ -62,6 +63,45 @@ def _service_error(error: ValueError) -> HTTPException:
     return HTTPException(status_code=400, detail=str(error))
 
 
+def _demo_reference() -> list[dict[str, Any]]:
+    records = []
+    for index in range(30):
+        value_0h = 9.8 + index * 0.014
+        delta_24h = 0.19 + (index % 5) * 0.009
+        forecast_error = (index % 7 - 3) * 0.025
+        records.append(
+            {
+                "device_id": f"REF-{index + 1:03}",
+                "lot_id": "REFERENCE-LOT-01",
+                "parameter": "leakage_current_uA",
+                "value_0h": round(value_0h, 3),
+                "value_24h": round(value_0h + delta_24h, 3),
+                "value_96h": round(value_0h + delta_24h * 4 + forecast_error, 3),
+                "value_168h": round(value_0h + delta_24h * 7 + forecast_error, 3),
+            }
+        )
+    return records
+
+
+def _demo_production_lot() -> list[dict[str, Any]]:
+    records = []
+    for index in range(11):
+        value_0h = 9.9 + (index % 5) * 0.035
+        delta_24h = 0.18 + (index % 3) * 0.008
+        records.append(
+            {
+                "device_id": f"SIH-{index + 1:03}",
+                "lot_id": "DEMO-LOT-07",
+                "parameter": "leakage_current_uA",
+                "value_0h": round(value_0h, 3),
+                "value_24h": round(value_0h + delta_24h, 3),
+            }
+        )
+    records[7]["value_0h"] = 10.02
+    records[7]["value_24h"] = 45
+    return records
+
+
 def create_app(
     db_path: str | Path | None = None, settings: Settings | None = None
 ) -> FastAPI:
@@ -95,6 +135,27 @@ def create_app(
     ) -> Any:
         if not config.supabase_auth_enabled:
             raise HTTPException(status_code=503, detail="Supabase sign-in is not configured.")
+        supabase_url = urlsplit(config.supabase_url)
+        if (
+            supabase_url.scheme != "https"
+            or not supabase_url.netloc
+            or supabase_url.path
+            or supabase_url.query
+            or supabase_url.fragment
+            or any(character.isspace() for character in config.supabase_url)
+        ):
+            raise HTTPException(
+                status_code=503,
+                detail="SUPABASE_URL must be one HTTPS project URL without extra lines or paths.",
+            )
+        if config.supabase_publishable_key.startswith("sb_secret_"):
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "SUPABASE_PUBLISHABLE_KEY must contain the Supabase publishable "
+                    "key (or legacy anon key), not a secret key."
+                ),
+            )
         headers = {"apikey": config.supabase_publishable_key}
         if access_token:
             headers["Authorization"] = f"Bearer {access_token}"
@@ -221,6 +282,7 @@ def create_app(
             "/api/auth/login",
             "/api/auth/refresh",
             "/api/auth/logout",
+            "/api/demo",
         }
         response = None
         if config.production:
@@ -228,7 +290,12 @@ def create_app(
             is_static_asset = path.startswith("/assets/")
             is_auth_api = path.startswith("/api/auth/")
             is_api = path.startswith("/api/")
-            if config.supabase_auth_enabled and is_api and not is_auth_api:
+            if (
+                config.supabase_auth_enabled
+                and is_api
+                and path not in public_paths
+                and not is_auth_api
+            ):
                 authorization = request.headers.get("authorization", "")
                 scheme, separator, access_token = authorization.partition(" ")
                 if not separator or scheme.lower() != "bearer" or not access_token:
@@ -331,12 +398,17 @@ def create_app(
     def auth_config() -> dict[str, Any]:
         return {
             "supabase_enabled": config.supabase_auth_enabled,
-            "supabase_url": config.supabase_url if config.supabase_auth_enabled else "",
-            "supabase_publishable_key": (
-                config.supabase_publishable_key if config.supabase_auth_enabled else ""
-            ),
             "entra_enabled": config.auth_enabled and not config.supabase_auth_enabled,
         }
+
+    @application.get("/api/demo")
+    def demo() -> dict[str, Any]:
+        try:
+            calibration = train_calibration(_demo_reference(), direction="higher")
+            report = screen_devices(_demo_production_lot(), calibration)
+        except ValueError as error:
+            raise _service_error(error) from error
+        return {"calibration": calibration, "report": report}
 
     @application.post("/api/auth/login")
     async def supabase_login(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:

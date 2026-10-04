@@ -17,7 +17,8 @@ backend\venv\Scripts\python -m uvicorn backend.app:app --host 127.0.0.1 --port 8
 Open <http://127.0.0.1:8000>. The API and dashboard are served from the same
 origin. The **Load interactive demo** button calibrates a generated known-good
 lot and screens a sample production lot; no sample data is silently treated as
-real screening evidence.
+real screening evidence. The hosted demo is read-only and can be loaded without
+signing in; uploads and QA decisions still require an authorized account.
 
 Run the backend tests from the repository root:
 
@@ -144,17 +145,20 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
    If configuring an existing service manually, set **Root Directory** to
    blank/repository root and **Dockerfile Path** to `./Dockerfile`; the image
    build needs both `backend/` and `frontend/` in its build context.
-2. Set these Render environment variables (the public key is safe to expose,
-   but the database URL and session secret are not):
+2. Set these Render environment variables (the Supabase publishable key is not
+   returned to browsers; the database URL and session secret must remain private):
    - `APP_ENV`: `production` (Render is also automatically treated as
      production when `RENDER_EXTERNAL_URL` is present.)
    - `DATABASE_URL`: the Supabase session-pooler URL from section B.
    - `APP_SESSION_SECRET`: a new random value of at least 32 characters. Do
      not reuse a database password.
-   - `SUPABASE_URL`: `https://eabqvhipuqngwrnzsenp.supabase.co`
+   - `SUPABASE_URL`: the single HTTPS project URL, for example
+     `https://<your-project-ref>.supabase.co`. Do not include paths, whitespace,
+     or multiple lines.
    - `SUPABASE_PUBLISHABLE_KEY`: the publishable key shown in your Supabase
-     project API settings. It is intended for client use; never put the
-     Supabase `service_role` or secret key here.
+     project API settings. Never use the Supabase `service_role` or secret key
+     here. If a secret key was previously used in this variable, revoke it and
+     create a new publishable key before deploying.
    - `AUTH_ALLOWED_EMAILS`: exact reviewer emails, comma-separated.
    - `WEB_CONCURRENCY`: `1` for the small free instance.
 3. Save changes and trigger a Render deploy. Render injects
