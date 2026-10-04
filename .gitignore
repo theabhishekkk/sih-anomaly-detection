@@ -1,0 +1,9 @@
+backend/venv/
+backend/__pycache__/
+backend/tests/__pycache__/
+backend/data/
+*.py[cod]
+.pytest_cache/
+.env
+.env.*
+!.env.example

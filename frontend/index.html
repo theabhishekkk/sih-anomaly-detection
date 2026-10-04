@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1220" />
+    <title>Burn-in Intelligence | SIH 26170</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Burn-in Intelligence home">
+        <span class="brand-mark">B</span>
+        <span>Burn-in <strong>Intelligence</strong></span>
+      </a>
+      <div class="topbar-right">
+        <span class="signed-in-user" id="signed-in-user"></span>
+        <button class="sign-out-button" id="sign-out" type="button" hidden>Sign out</button>
+        <span class="live-indicator"><span></span> SCREENING SYSTEM</span>
+        <span class="challenge-id">SIH 26170</span>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">ENVIRONMENTAL STRESS SCREENING · 168 HOUR FORECAST</p>
+          <h1>Catch the drift.<br /><span>Before it becomes a failure.</span></h1>
+          <p class="hero-copy">
+            Calibrate on known-good devices, screen a burn-in lot, and review evidence
+            before recording a traceable QA decision.
+          </p>
+        </div>
+        <button class="button button-secondary" id="demo-button" type="button">
+          Load interactive demo
+        </button>
+      </section>
+
+      <section class="metrics" aria-label="Latest lot summary">
+        <article class="metric-card">
+          <span class="metric-label">DEVICES SCREENED</span>
+          <strong id="metric-total">—</strong>
+          <span class="metric-foot">Latest lot</span>
+        </article>
+        <article class="metric-card metric-alert">
+          <span class="metric-label">REQUIRES REVIEW</span>
+          <strong id="metric-flagged">—</strong>
+          <span class="metric-foot">Anomaly or unsafe drift</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">LOT HEALTH</span>
+          <strong id="metric-health">—</strong>
+          <span class="metric-foot">Unflagged device percentage</span>
+        </article>
+        <article class="metric-card">
+          <span class="metric-label">CALIBRATION</span>
+          <strong id="metric-calibration">Not set</strong>
+          <span class="metric-foot" id="calibration-foot">Upload reference data to begin</span>
+        </article>
+      </section>
+
+      <section class="workspace-grid">
+        <article class="card workflow-card">
+          <div class="section-heading">
+            <div class="step-number">01</div>
+            <div>
+              <p class="eyebrow">LEARN NORMAL BEHAVIOR</p>
+              <h2>Reference calibration</h2>
+            </div>
+          </div>
+          <p class="muted">
+            Train a robust, per-parameter baseline from known-good devices. Historical
+            168h readings also train a cautious upper/lower quantile forecast.
+          </p>
+          <label class="file-drop" for="reference-file">
+            <span class="upload-icon" aria-hidden="true">↑</span>
+            <span><strong>Choose reference CSV</strong><small id="reference-file-name">CSV · UTF-8</small></span>
+            <input id="reference-file" type="file" accept=".csv,text/csv" />
+          </label>
+          <div class="field-row">
+            <label for="direction">Failure direction</label>
+            <select id="direction">
+              <option value="higher">Higher readings are worse</option>
+              <option value="lower">Lower readings are worse</option>
+            </select>
+          </div>
+          <button class="button button-primary button-full" id="calibrate-button" type="button">
+            Calibrate reference lot
+          </button>
+          <a class="template-link" href="/assets/reference-template.csv" download>
+            Download CSV template
+          </a>
+          <p class="form-message" id="calibration-message" role="status"></p>
+        </article>
+
+        <article class="card workflow-card">
+          <div class="section-heading">
+            <div class="step-number">02</div>
+            <div>
+              <p class="eyebrow">SCREEN THE PRODUCTION LOT</p>
+              <h2>Burn-in screening</h2>
+            </div>
+          </div>
+          <p class="muted">
+            Upload device readings at 0h and 24h. Robust scores compare each reading
+            with its calibrated lot, while the drift model projects to 168h.
+          </p>
+          <label class="file-drop" for="screening-file">
+            <span class="upload-icon" aria-hidden="true">↑</span>
+            <span><strong>Choose screening CSV</strong><small id="screening-file-name">CSV · UTF-8</small></span>
+            <input id="screening-file" type="file" accept=".csv,text/csv" />
+          </label>
+          <div class="field-row">
+            <label for="safety-slope">Safety slope <span class="optional">optional</span></label>
+            <input id="safety-slope" type="number" min="0.000000001" step="any" placeholder="Use calibrated limit" />
+          </div>
+          <p class="field-hint">A supplied limit applies to all parameters; otherwise each uses its own calibrated limit.</p>
+          <button class="button button-primary button-full" id="screen-button" type="button">
+            Analyze production lot
+          </button>
+          <p class="form-message" id="screening-message" role="status"></p>
+        </article>
+      </section>
+
+      <section class="card lot-card">
+        <div class="lot-heading">
+          <div>
+            <p class="eyebrow">LATEST SCREENING RUN</p>
+            <h2>Lot overview <span class="run-time" id="run-time"></span></h2>
+          </div>
+          <label class="filter-control" for="device-filter">
+            <span class="sr-only">Filter devices</span>
+            <select id="device-filter">
+              <option value="all">All devices</option>
+              <option value="flagged">Flagged only</option>
+              <option value="normal">Passed</option>
+            </select>
+          </label>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>DEVICE / LOT</th>
+                <th>PARAMETER</th>
+                <th>0H → 24H</th>
+                <th>168H FORECAST</th>
+                <th>ROBUST SCORE</th>
+                <th>STATUS</th>
+              </tr>
+            </thead>
+            <tbody id="device-rows">
+              <tr><td class="empty-state" colspan="6">Calibrate a reference lot, then analyze a screening CSV.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card audit-card">
+        <div class="lot-heading">
+          <div>
+            <p class="eyebrow">QUALITY TRACEABILITY</p>
+            <h2>Inspector decisions</h2>
+          </div>
+          <span class="audit-count" id="audit-count">0 logged</span>
+        </div>
+        <div id="audit-list" class="audit-list">
+          <p class="empty-copy">Decisions made during review will appear here with their evidence.</p>
+        </div>
+      </section>
+
+      <footer class="disclaimer">
+        <span>DECISION SUPPORT · NOT A SUBSTITUTE FOR QUALIFIED ENGINEERING REVIEW</span>
+        <span>Local-first · Evidence-led · Auditable</span>
+      </footer>
+    </main>
+
+    <dialog id="device-dialog" class="device-dialog">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">COMPONENT SIGNAL ANALYSIS</p>
+          <h2 id="dialog-title">Device detail</h2>
+        </div>
+        <button class="icon-button" id="close-dialog" type="button" aria-label="Close details">×</button>
+      </div>
+      <div id="device-chart" class="chart-container"></div>
+      <div class="evidence-grid" id="device-evidence"></div>
+      <section class="explanation-box">
+        <div class="explanation-title"><span class="sparkle">✦</span><strong>AI inspector</strong><span id="explanation-source"></span></div>
+        <p id="device-explanation">Loading evidence...</p>
+      </section>
+      <section class="shap-box">
+        <h3>Feature SHAP values <span>contribution to robust anomaly score²</span></h3>
+        <div id="shap-values"></div>
+      </section>
+      <section class="decision-form">
+        <h3>Record QA decision</h3>
+        <div class="decision-fields">
+          <label>Inspector name<input id="inspector-name" autocomplete="name" placeholder="Name for the audit trail" /></label>
+          <label>Decision rationale<input id="decision-reason" placeholder="Required: summarize the review evidence" /></label>
+        </div>
+        <p class="form-message" id="decision-message" role="status"></p>
+        <div class="decision-buttons">
+          <button class="button button-danger" id="approve-rejection" type="button">Approve rejection</button>
+          <button class="button button-secondary" id="override-flag" type="button">Override flag</button>
+        </div>
+      </section>
+    </dialog>
+  </body>
+</html>

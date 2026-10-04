@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": {
+      "value": "centralindia"
+    },
+    "environmentName": {
+      "value": "sihprod"
+    },
+    "publicBaseUrl": {
+      "value": "https://burnin.example.com"
+    },
+    "postgresAdminLogin": {
+      "value": "burninadmin"
+    },
+    "oidcTenantId": {
+      "value": "REPLACE_WITH_MICROSOFT_ENTRA_TENANT_ID"
+    },
+    "oidcClientId": {
+      "value": "REPLACE_WITH_MICROSOFT_ENTRA_APPLICATION_ID"
+    },
+    "oidcAllowedEmails": {
+      "value": "qa-engineer@example.com"
+    }
+  }
+}
