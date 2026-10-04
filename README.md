@@ -167,13 +167,14 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
    - `DATABASE_URL`: exactly the same Supabase app-role connection URL as
      Render's value.
    - `RENDER_DEPLOY_HOOK`: the private deploy hook URL from Render.
-3. Add these environment variables:
+3. Add this environment variable to the `production` environment:
    - `APP_HEALTHCHECK_URL`: the Render base URL, for example
      `https://<your-render-service>.onrender.com`.
-   - `RENDER_DEPLOY_ENABLED`: `true` to permit the workflow to deploy after
-     validation. Leave it unset/false until Render environment values, the
-     database role, and GitHub secrets are configured.
-4. Run the **Free-tier deployment** workflow from GitHub **Actions**, selecting
+4. In repository **Settings → Secrets and variables → Actions → Variables**,
+   add `RENDER_DEPLOY_ENABLED` with value `true` to permit deployment after
+   validation. Leave it unset/false until Render environment values, the
+   database role, and GitHub secrets are configured.
+5. Run the **Free-tier deployment** workflow from GitHub **Actions**, selecting
    `main`. It always runs tests and a dependency audit. When
    `RENDER_DEPLOY_ENABLED` is `true`, it then applies the Alembic migration
    using the app role, triggers Render, and probes database readiness. Later
