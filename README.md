@@ -137,8 +137,11 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
    `https://sih-anomaly-detection.onrender.com` exists, open its **Environment**
    settings and configure these values there. Otherwise create the Blueprint
    from this GitHub repository. The Blueprint requests a **Free** Oregon
-   service, uses the Dockerfile, and disables automatic deploys so migrations
-   can run before app deployment.
+   service, builds from the repository root using its top-level `Dockerfile`,
+   and disables automatic deploys so migrations can run before app deployment.
+   If configuring an existing service manually, set **Root Directory** to
+   blank/repository root and **Dockerfile Path** to `./Dockerfile`; the image
+   build needs both `backend/` and `frontend/` in its build context.
 2. Set these Render environment variables (the public key is safe to expose,
    but the database URL and session secret are not):
    - `APP_ENV`: `production`
