@@ -17,6 +17,13 @@ class Settings:
     public_base_url: str
     ollama_model: str
     ollama_url: str
+    supabase_url: str = ""
+    supabase_publishable_key: str = ""
+    auth_allowed_emails: frozenset[str] = frozenset()
+
+    @property
+    def allowed_emails(self) -> frozenset[str]:
+        return self.auth_allowed_emails or self.oidc_allowed_emails
 
     @property
     def production(self) -> bool:
@@ -25,6 +32,10 @@ class Settings:
     @property
     def auth_enabled(self) -> bool:
         return self.production
+
+    @property
+    def supabase_auth_enabled(self) -> bool:
+        return bool(self.supabase_url and self.supabase_publishable_key)
 
     @classmethod
     def from_environment(cls) -> Settings:
@@ -53,6 +64,16 @@ class Settings:
             ).rstrip("/"),
             ollama_model=os.getenv("OLLAMA_MODEL", "").strip(),
             ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/"),
+            supabase_url=os.getenv("SUPABASE_URL", "").strip().rstrip("/"),
+            supabase_publishable_key=os.getenv("SUPABASE_PUBLISHABLE_KEY", "").strip(),
+            auth_allowed_emails=frozenset(
+                email.strip().lower()
+                for email in (
+                    os.getenv("AUTH_ALLOWED_EMAILS", "")
+                    or os.getenv("OIDC_ALLOWED_EMAILS", "")
+                ).split(",")
+                if email.strip()
+            ),
         )
 
     def validate(self) -> None:
@@ -64,21 +85,27 @@ class Settings:
             raise ValueError("Production requires a PostgreSQL DATABASE_URL using psycopg.")
         if len(self.session_secret) < 32:
             raise ValueError("Production APP_SESSION_SECRET must be at least 32 characters.")
-        missing = [
-            name
-            for name, value in (
-                ("OIDC_TENANT_ID", self.oidc_tenant_id),
-                ("OIDC_CLIENT_ID", self.oidc_client_id),
-                ("OIDC_CLIENT_SECRET", self.oidc_client_secret),
-                ("PUBLIC_BASE_URL", self.public_base_url),
-            )
-            if not value
-        ]
-        if missing:
-            raise ValueError(f"Production authentication is missing: {', '.join(missing)}.")
-        if not self.oidc_allowed_emails:
-            raise ValueError("Production requires an explicit OIDC_ALLOWED_EMAILS allowlist.")
-        if not self.public_base_url.startswith("https://"):
-            raise ValueError("Production PUBLIC_BASE_URL must use HTTPS.")
+        if not self.allowed_emails:
+            raise ValueError("Production requires an explicit AUTH_ALLOWED_EMAILS allowlist.")
+        if self.supabase_url or self.supabase_publishable_key:
+            if not self.supabase_url.startswith("https://"):
+                raise ValueError("Production SUPABASE_URL must use HTTPS.")
+            if not self.supabase_publishable_key:
+                raise ValueError("SUPABASE_PUBLISHABLE_KEY is required with SUPABASE_URL.")
+        else:
+            missing = [
+                name
+                for name, value in (
+                    ("OIDC_TENANT_ID", self.oidc_tenant_id),
+                    ("OIDC_CLIENT_ID", self.oidc_client_id),
+                    ("OIDC_CLIENT_SECRET", self.oidc_client_secret),
+                    ("PUBLIC_BASE_URL", self.public_base_url),
+                )
+                if not value
+            ]
+            if missing:
+                raise ValueError(f"Production authentication is missing: {', '.join(missing)}.")
+            if not self.public_base_url.startswith("https://"):
+                raise ValueError("Production PUBLIC_BASE_URL must use HTTPS.")
         if not self.ollama_url.startswith(("http://", "https://")):
             raise ValueError("OLLAMA_URL must be an HTTP(S) URL.")

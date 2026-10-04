@@ -15,6 +15,14 @@
         <span>Burn-in <strong>Intelligence</strong></span>
       </a>
       <div class="topbar-right">
+        <form id="supabase-login" class="auth-form" hidden>
+          <label class="sr-only" for="auth-email">QA account email</label>
+          <input id="auth-email" type="email" autocomplete="username" placeholder="QA email" required />
+          <label class="sr-only" for="auth-password">Password</label>
+          <input id="auth-password" type="password" autocomplete="current-password" placeholder="Password" required />
+          <button class="sign-out-button" type="submit">Sign in</button>
+          <span id="auth-message" class="signed-in-user" role="status"></span>
+        </form>
         <span class="signed-in-user" id="signed-in-user"></span>
         <button class="sign-out-button" id="sign-out" type="button" hidden>Sign out</button>
         <span class="live-indicator"><span></span> SCREENING SYSTEM</span>

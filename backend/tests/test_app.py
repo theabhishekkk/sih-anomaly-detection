@@ -60,6 +60,104 @@ def test_render_external_url_is_used_as_the_production_origin(monkeypatch):
     assert Settings.from_environment().public_base_url == "https://sih-burnin.onrender.com"
 
 
+def test_supabase_auth_login_allowlist_and_bearer_protection(tmp_path, monkeypatch):
+    database = tmp_path / "supabase-auth.sqlite3"
+    storage.initialize(database)
+    monkeypatch.setattr(storage, "check_database", lambda _: True)
+
+    class FakeResponse:
+        def __init__(self, payload, status_code=200):
+            self._payload = payload
+            self.status_code = status_code
+            self.is_error = status_code >= 400
+            self.content = b"{}"
+
+        def json(self):
+            return self._payload
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            assert timeout == 10.0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers, json):
+            assert headers["apikey"] == "sb_publishable_test"
+            assert url.endswith("/auth/v1/token?grant_type=password")
+            email = json["email"]
+            return FakeResponse(
+                {
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "expires_in": 3600,
+                    "user": {
+                        "id": "user-1",
+                        "email": email,
+                        "user_metadata": {"full_name": "QA Engineer"},
+                    },
+                }
+            )
+
+        async def get(self, url, headers):
+            assert headers["Authorization"] == "Bearer access-token"
+            return FakeResponse(
+                {
+                    "id": "user-1",
+                    "email": "qa@example.com",
+                    "user_metadata": {"full_name": "QA Engineer"},
+                }
+            )
+
+    monkeypatch.setattr(backend_app.httpx, "AsyncClient", FakeAsyncClient)
+    settings = Settings(
+        environment="production",
+        database_url="postgresql+psycopg://app:password@db.example.com/burnin",
+        session_secret="a-production-session-secret-that-is-at-least-32-bytes",
+        oidc_tenant_id="",
+        oidc_client_id="",
+        oidc_client_secret="",
+        oidc_allowed_emails=frozenset(),
+        public_base_url="",
+        ollama_model="",
+        ollama_url="http://127.0.0.1:11434",
+        supabase_url="https://project.supabase.co",
+        supabase_publishable_key="sb_publishable_test",
+        auth_allowed_emails=frozenset({"qa@example.com"}),
+    )
+
+    with TestClient(create_app(database, settings), base_url="https://testserver") as client:
+        assert client.get("/").status_code == 200
+        assert client.get("/api/auth/config").json()["supabase_enabled"] is True
+        assert client.get("/api/state").status_code == 401
+
+        login = client.post(
+            "/api/auth/login",
+            json={"email": "qa@example.com", "password": "password"},
+        )
+        assert login.status_code == 200
+        assert login.json()["user"]["name"] == "QA Engineer"
+
+        authorized_headers = {"Authorization": "Bearer access-token"}
+        identity = client.get("/api/whoami", headers=authorized_headers)
+        assert identity.json()["user"]["email"] == "qa@example.com"
+        calibrated = client.post(
+            "/api/calibration",
+            json={"reference": reference_lot()},
+            headers=authorized_headers,
+        )
+        assert calibrated.status_code == 200
+
+        rejected = client.post(
+            "/api/auth/login",
+            json={"email": "outsider@example.com", "password": "password"},
+        )
+        assert rejected.status_code == 403
+
+
 def test_production_auth_requires_login_csrf_and_allowlisted_identity(
     tmp_path, monkeypatch
 ):

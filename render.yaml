@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: sih-burnin
+    name: sih-anomaly-detection
     runtime: docker
     plan: free
     region: oregon
@@ -19,11 +19,9 @@ services:
         sync: false
       - key: APP_SESSION_SECRET
         sync: false
-      - key: OIDC_TENANT_ID
+      - key: SUPABASE_URL
         sync: false
-      - key: OIDC_CLIENT_ID
+      - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
-      - key: OIDC_CLIENT_SECRET
-        sync: false
-      - key: OIDC_ALLOWED_EMAILS
+      - key: AUTH_ALLOWED_EMAILS
         sync: false

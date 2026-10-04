@@ -90,6 +90,103 @@ def create_app(
             client_kwargs={"scope": "openid profile email"},
         )
 
+    async def supabase_auth_request(
+        path: str, *, payload: dict[str, Any] | None = None, access_token: str = ""
+    ) -> Any:
+        if not config.supabase_auth_enabled:
+            raise HTTPException(status_code=503, detail="Supabase sign-in is not configured.")
+        headers = {"apikey": config.supabase_publishable_key}
+        if access_token:
+            headers["Authorization"] = f"Bearer {access_token}"
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                if payload is None:
+                    response = await client.get(
+                        f"{config.supabase_url}/auth/v1/{path}",
+                        headers=headers,
+                    )
+                else:
+                    response = await client.post(
+                        f"{config.supabase_url}/auth/v1/{path}",
+                        headers=headers,
+                        json=payload,
+                    )
+        except httpx.HTTPError as error:
+            logger.warning(
+                "supabase_auth_unavailable",
+                extra={"auth_path": path, "exception_type": type(error).__name__},
+            )
+            raise HTTPException(
+                status_code=503, detail="Supabase authentication is unavailable."
+            ) from error
+        if response.status_code >= 500:
+            raise HTTPException(
+                status_code=503, detail="Supabase authentication is unavailable."
+            )
+        if response.is_error:
+            raise HTTPException(status_code=401, detail="Supabase sign-in was rejected.")
+        try:
+            return response.json() if response.content else {}
+        except ValueError as error:
+            raise HTTPException(
+                status_code=502, detail="Supabase returned an invalid authentication response."
+            ) from error
+
+    async def validate_supabase_access_token(access_token: str) -> dict[str, str]:
+        result = await supabase_auth_request("user", access_token=access_token)
+        user = result if isinstance(result, dict) else {}
+        email = str(user.get("email") or "").strip().lower()
+        if not email:
+            raise HTTPException(status_code=401, detail="Sign in with your QA account.")
+        if email not in config.allowed_emails:
+            raise HTTPException(
+                status_code=403, detail="This account is not authorized for screening."
+            )
+        metadata = user.get("user_metadata")
+        metadata = metadata if isinstance(metadata, dict) else {}
+        return {
+            "id": str(user.get("id") or ""),
+            "email": email,
+            "name": str(metadata.get("full_name") or metadata.get("name") or email),
+        }
+
+    def supabase_token_response(payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=502, detail="Supabase returned an invalid session.")
+        user = payload.get("user")
+        if not isinstance(user, dict):
+            raise HTTPException(status_code=502, detail="Supabase returned no signed-in user.")
+        email = str(user.get("email") or "").strip().lower()
+        if not email:
+            raise HTTPException(status_code=401, detail="The account has no verified email.")
+        if email not in config.allowed_emails:
+            raise HTTPException(
+                status_code=403, detail="This account is not authorized for screening."
+            )
+        return {
+            "access_token": str(payload.get("access_token") or ""),
+            "refresh_token": str(payload.get("refresh_token") or ""),
+            "expires_in": payload.get("expires_in"),
+            "token_type": payload.get("token_type", "bearer"),
+            "user": {
+                "id": str(user.get("id") or ""),
+                "email": email,
+                "name": str(
+                    (
+                        user.get("user_metadata")
+                        if isinstance(user.get("user_metadata"), dict)
+                        else {}
+                    ).get("full_name")
+                    or (
+                        user.get("user_metadata")
+                        if isinstance(user.get("user_metadata"), dict)
+                        else {}
+                    ).get("name")
+                    or email
+                ),
+            },
+        }
+
     @asynccontextmanager
     async def lifespan(_application: FastAPI) -> AsyncGenerator[None, None]:
         config.validate()
@@ -115,28 +212,59 @@ def create_app(
     @application.middleware("http")
     async def enforce_production_access(request: Request, call_next):
         started_at = perf_counter()
-        public_paths = {"/health", "/health/ready", "/auth/login", "/auth/callback"}
+        public_paths = {
+            "/health",
+            "/health/ready",
+            "/auth/login",
+            "/auth/callback",
+            "/api/auth/config",
+            "/api/auth/login",
+            "/api/auth/refresh",
+            "/api/auth/logout",
+        }
         response = None
-        if config.production and request.url.path not in public_paths:
-            if not request.session.get("user"):
-                if request.url.path.startswith("/api/"):
+        if config.production:
+            path = request.url.path
+            is_static_asset = path.startswith("/assets/")
+            is_auth_api = path.startswith("/api/auth/")
+            is_api = path.startswith("/api/")
+            if config.supabase_auth_enabled and is_api and not is_auth_api:
+                authorization = request.headers.get("authorization", "")
+                scheme, separator, access_token = authorization.partition(" ")
+                if not separator or scheme.lower() != "bearer" or not access_token:
                     response = JSONResponse(
-                        {"detail": "Sign in with your organization account."},
+                        {"detail": "Sign in with your QA account."},
                         status_code=401,
                     )
                 else:
-                    response = RedirectResponse("/auth/login", status_code=303)
-            elif (
-                request.method in {"POST", "PUT", "PATCH", "DELETE"}
-                and request.url.path.startswith("/api/")
-            ):
-                expected = request.session.get("csrf_token", "")
-                supplied = request.headers.get("x-csrf-token", "")
-                if not expected or not hmac.compare_digest(expected, supplied):
-                    response = JSONResponse(
-                        {"detail": "CSRF token is missing or invalid."},
-                        status_code=403,
-                    )
+                    try:
+                        request.state.supabase_user = await validate_supabase_access_token(
+                            access_token
+                        )
+                    except HTTPException as error:
+                        response = JSONResponse(
+                            {"detail": error.detail}, status_code=error.status_code
+                        )
+            elif not config.supabase_auth_enabled and path not in public_paths and not is_static_asset:
+                if not request.session.get("user"):
+                    if is_api:
+                        response = JSONResponse(
+                            {"detail": "Sign in with your organization account."},
+                            status_code=401,
+                        )
+                    else:
+                        response = RedirectResponse("/auth/login", status_code=303)
+                elif (
+                    request.method in {"POST", "PUT", "PATCH", "DELETE"}
+                    and is_api
+                ):
+                    expected = request.session.get("csrf_token", "")
+                    supplied = request.headers.get("x-csrf-token", "")
+                    if not expected or not hmac.compare_digest(expected, supplied):
+                        response = JSONResponse(
+                            {"detail": "CSRF token is missing or invalid."},
+                            status_code=403,
+                        )
 
         if response is None:
             response = await call_next(request)
@@ -199,14 +327,59 @@ def create_app(
             request.session["csrf_token"] = token
         return {"csrf_token": token}
 
+    @application.get("/api/auth/config")
+    def auth_config() -> dict[str, Any]:
+        return {
+            "supabase_enabled": config.supabase_auth_enabled,
+            "supabase_url": config.supabase_url if config.supabase_auth_enabled else "",
+            "supabase_publishable_key": (
+                config.supabase_publishable_key if config.supabase_auth_enabled else ""
+            ),
+            "entra_enabled": config.auth_enabled and not config.supabase_auth_enabled,
+        }
+
+    @application.post("/api/auth/login")
+    async def supabase_login(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        email = str(payload.get("email") or "").strip().lower()
+        password = payload.get("password")
+        if not email or not isinstance(password, str) or not password:
+            raise HTTPException(status_code=400, detail="Email and password are required.")
+        result = await supabase_auth_request(
+            "token?grant_type=password",
+            payload={"email": email, "password": password},
+        )
+        return supabase_token_response(result)
+
+    @application.post("/api/auth/refresh")
+    async def supabase_refresh(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+        refresh_token = payload.get("refresh_token")
+        if not isinstance(refresh_token, str) or not refresh_token:
+            raise HTTPException(status_code=400, detail="A Supabase refresh token is required.")
+        result = await supabase_auth_request(
+            "token?grant_type=refresh_token",
+            payload={"refresh_token": refresh_token},
+        )
+        return supabase_token_response(result)
+
+    @application.post("/api/auth/logout")
+    async def supabase_logout(request: Request) -> dict[str, str]:
+        authorization = request.headers.get("authorization", "")
+        scheme, separator, access_token = authorization.partition(" ")
+        if separator and scheme.lower() == "bearer" and access_token:
+            await supabase_auth_request("logout", access_token=access_token)
+        return {"status": "signed_out"}
+
     @application.get("/api/whoami")
     def whoami(request: Request) -> dict[str, Any]:
+        supabase_user = getattr(request.state, "supabase_user", None)
+        if supabase_user:
+            return {"authenticated": True, "user": supabase_user}
         user = request.session.get("user") if config.production else None
         return {"authenticated": bool(user), "user": user}
 
     @application.get("/auth/login", include_in_schema=False)
     async def auth_login(request: Request):
-        if not config.auth_enabled:
+        if not config.auth_enabled or config.supabase_auth_enabled:
             return RedirectResponse("/", status_code=303)
         if oauth.create_client("entra") is None:
             raise HTTPException(status_code=503, detail="Organization sign-in is not configured.")
@@ -215,7 +388,7 @@ def create_app(
 
     @application.get("/auth/callback", name="auth_callback", include_in_schema=False)
     async def auth_callback(request: Request):
-        if not config.auth_enabled:
+        if not config.auth_enabled or config.supabase_auth_enabled:
             return RedirectResponse("/", status_code=303)
         try:
             token = await oauth.entra.authorize_access_token(request)

@@ -1,6 +1,23 @@
 const state = { calibration: null, report: null, decisions: [], selected: null };
 const $ = (selector) => document.querySelector(selector);
 let csrfToken;
+let authConfig = { supabase_enabled: false };
+let supabaseSession = loadSupabaseSession();
+
+function loadSupabaseSession() {
+  try {
+    const stored = sessionStorage.getItem('sih-supabase-session');
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSupabaseSession(session) {
+  supabaseSession = session;
+  if (session) sessionStorage.setItem('sih-supabase-session', JSON.stringify(session));
+  else sessionStorage.removeItem('sih-supabase-session');
+}
 
 function setMessage(selector, message, kind = '') {
   const element = $(selector);
@@ -10,7 +27,9 @@ function setMessage(selector, message, kind = '') {
 
 async function requestJson(url, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+  const isAuthRoute = url.startsWith('/api/auth/');
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)
+      && !authConfig.supabase_enabled && !isAuthRoute) {
     if (!csrfToken) {
       const csrfResponse = await fetch('/api/csrf');
       const csrfPayload = await csrfResponse.json().catch(() => ({}));
@@ -23,7 +42,29 @@ async function requestJson(url, options = {}) {
     headers.set('X-CSRF-Token', csrfToken);
     options = { ...options, headers };
   }
-  const response = await fetch(url, options);
+  const headers = new Headers(options.headers || {});
+  if (authConfig.supabase_enabled && supabaseSession?.access_token
+      && url !== '/api/auth/login' && url !== '/api/auth/refresh') {
+    headers.set('Authorization', `Bearer ${supabaseSession.access_token}`);
+  }
+  options = { ...options, headers };
+  let response = await fetch(url, options);
+  if (response.status === 401 && authConfig.supabase_enabled
+      && supabaseSession?.refresh_token && url !== '/api/auth/refresh') {
+    const refreshResponse = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: supabaseSession.refresh_token }),
+    });
+    const refreshed = await refreshResponse.json().catch(() => ({}));
+    if (refreshResponse.ok && refreshed.access_token && refreshed.refresh_token) {
+      saveSupabaseSession(refreshed);
+      headers.set('Authorization', `Bearer ${refreshed.access_token}`);
+      response = await fetch(url, { ...options, headers });
+    } else {
+      saveSupabaseSession(null);
+    }
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = Array.isArray(payload.detail)
@@ -182,6 +223,11 @@ function renderAudit(decisions) {
 }
 
 async function refreshState() {
+  if (authConfig.supabase_enabled && !supabaseSession?.access_token) {
+    setMessage('#auth-message', 'Sign in with an allowed QA account.');
+    $('#demo-button').disabled = true;
+    return;
+  }
   try {
     const data = await requestJson('/api/state');
     renderCalibration(data.calibration?.data || null);
@@ -190,17 +236,73 @@ async function refreshState() {
     const identity = await requestJson('/api/whoami');
     $('#signed-in-user').textContent = identity.user?.name || '';
     $('#sign-out').hidden = !identity.authenticated;
+    $('#supabase-login').hidden = identity.authenticated;
+    $('#demo-button').disabled = false;
   } catch (error) {
+    if (authConfig.supabase_enabled) {
+      $('#supabase-login').hidden = false;
+      $('#sign-out').hidden = true;
+      $('#signed-in-user').textContent = '';
+    }
     setMessage('#screening-message', `Could not load saved state: ${error.message}`, 'error');
   }
 }
 
 async function signOut() {
   try {
-    await requestJson('/auth/logout', { method: 'POST' });
+    if (authConfig.supabase_enabled) {
+      await requestJson('/api/auth/logout', { method: 'POST' });
+      saveSupabaseSession(null);
+    } else {
+      await requestJson('/auth/logout', { method: 'POST' });
+    }
     window.location.assign('/');
   } catch (error) {
     setMessage('#screening-message', `Could not sign out: ${error.message}`, 'error');
+  }
+}
+
+async function initializeAuthentication() {
+  try {
+    const response = await fetch('/api/auth/config');
+    authConfig = await response.json();
+    $('#supabase-login').hidden = !authConfig.supabase_enabled;
+    if (authConfig.supabase_enabled) {
+      await refreshState();
+      return;
+    }
+    await refreshState();
+  } catch (error) {
+    setMessage('#auth-message', `Authentication setup failed: ${error.message}`, 'error');
+  }
+}
+
+async function signInWithSupabase(event) {
+  event.preventDefault();
+  const button = $('#supabase-login button[type="submit"]');
+  busy(button, true, 'Signing in…');
+  setMessage('#auth-message', '');
+  try {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: $('#auth-email').value.trim(),
+        password: $('#auth-password').value,
+      }),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.detail || `Sign-in failed (${response.status}).`);
+    if (!result.access_token || !result.refresh_token) {
+      throw new Error('Supabase returned an incomplete sign-in session.');
+    }
+    saveSupabaseSession(result);
+    $('#auth-password').value = '';
+    await refreshState();
+  } catch (error) {
+    setMessage('#auth-message', error.message, 'error');
+  } finally {
+    busy(button, false);
   }
 }
 
@@ -488,10 +590,11 @@ $('#demo-button').addEventListener('click', loadDemo);
 $('#device-filter').addEventListener('change', renderDevices);
 $('#close-dialog').addEventListener('click', () => $('#device-dialog').close());
 $('#sign-out').addEventListener('click', signOut);
+$('#supabase-login').addEventListener('submit', signInWithSupabase);
 $('#approve-rejection').addEventListener('click', () => recordDecision('approve_rejection'));
 $('#override-flag').addEventListener('click', () => recordDecision('override_flag'));
 $('#device-dialog').addEventListener('click', (event) => {
   if (event.target === $('#device-dialog')) $('#device-dialog').close();
 });
 
-refreshState();
+initializeAuthentication();

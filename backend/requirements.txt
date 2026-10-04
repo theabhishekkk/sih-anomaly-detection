@@ -2,6 +2,7 @@ alembic==1.20.0
 Authlib==1.8.0
 azure-monitor-opentelemetry==1.8.10
 fastapi==0.142.2
+itsdangerous==2.2.0
 httpx==0.28.1
 httpx2==2.13.1
 psycopg[binary]==3.3.6

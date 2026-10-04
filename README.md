@@ -95,8 +95,10 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
 
 ### A. Put the project in GitHub
 
-1. Create a private GitHub repository and push this project to its `main`
-   branch. Do not include `.env`, database files, passwords, or access tokens.
+1. Use the project repository at
+   <https://github.com/theabhishekkk/sih-anomaly-detection> and deploy from its
+   `main` branch. Do not include `.env`, database files, passwords, or access
+   tokens.
 2. Confirm GitHub Actions is enabled for the repository.
 
 ### B. Create the free Supabase database
@@ -124,29 +126,38 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
    URL private. Use it as `DATABASE_URL` in Render and as the GitHub Actions
    secret in section D.
 
-### C. Create the free Render service
+4. In Supabase **Authentication → Users**, create/invite each QA reviewer using
+   the email address you plan to allow. Use these same exact emails in
+   `AUTH_ALLOWED_EMAILS`; unlisted accounts are denied access even if they can
+   authenticate with Supabase.
 
-1. Create a Render account and connect it to the GitHub repository.
-2. In Render, choose **New → Blueprint**, select the repository, and deploy the
-   root `render.yaml`. It requests a **Free** Oregon web service and explicitly
-   disables automatic deploys so database migrations can run before each app
-   update.
-3. Supply the requested environment values privately in Render:
-   - `DATABASE_URL`: the Supabase session-pooler URL above.
-   - `APP_SESSION_SECRET`: a new random secret of at least 32 characters (use
-     the PowerShell generation command from the Azure instructions, and do not
-     reuse an Azure/database password).
-   - `OIDC_TENANT_ID`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`: values from a
-     Microsoft Entra single-tenant app registration.
-   - `OIDC_ALLOWED_EMAILS`: exact reviewer email addresses, comma-separated.
-4. Copy the public service URL from Render. In the Entra app registration, add
-   this redirect URI under **Authentication**:
-   `https://<your-render-service>.onrender.com/auth/callback`.
-   Set the Entra values and allowlist in Render if you have not already done
-   so, then wait for `/health/ready` to return `{"status":"ready"}`. Render sets
-   `RENDER_EXTERNAL_URL`; the app uses it as the OIDC callback origin.
-5. In the Render service settings, create a **Deploy Hook** and copy its URL
-   directly into GitHub in the next section. Treat it as a secret.
+### C. Configure the Render web service
+
+1. The repository already has `render.yaml`. If the Render web service at
+   `https://sih-anomaly-detection.onrender.com` exists, open its **Environment**
+   settings and configure these values there. Otherwise create the Blueprint
+   from this GitHub repository. The Blueprint requests a **Free** Oregon
+   service, uses the Dockerfile, and disables automatic deploys so migrations
+   can run before app deployment.
+2. Set these Render environment variables (the public key is safe to expose,
+   but the database URL and session secret are not):
+   - `APP_ENV`: `production`
+   - `DATABASE_URL`: the Supabase session-pooler URL from section B.
+   - `APP_SESSION_SECRET`: a new random value of at least 32 characters. Do
+     not reuse a database password.
+   - `SUPABASE_URL`: `https://eabqvhipuqngwrnzsenp.supabase.co`
+   - `SUPABASE_PUBLISHABLE_KEY`: the publishable key shown in your Supabase
+     project API settings. It is intended for client use; never put the
+     Supabase `service_role` or secret key here.
+   - `AUTH_ALLOWED_EMAILS`: exact reviewer emails, comma-separated.
+   - `WEB_CONCURRENCY`: `1` for the small free instance.
+3. Save changes and trigger a Render deploy. Render injects
+   `RENDER_EXTERNAL_URL`; no Next.js server helper or OAuth callback URL is
+   needed for this same-origin FastAPI dashboard. Verify
+   `https://sih-anomaly-detection.onrender.com/health/ready` returns
+   `{"status":"ready"}`.
+4. In Render service settings, create a **Deploy Hook**. Treat its URL as a
+   secret and add it to GitHub in the next section.
 
 ### D. Enable migrations and controlled deploys
 
@@ -156,13 +167,17 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
    - `DATABASE_URL`: exactly the same Supabase app-role connection URL as
      Render's value.
    - `RENDER_DEPLOY_HOOK`: the private deploy hook URL from Render.
-3. Add this environment variable:
+3. Add these environment variables:
    - `APP_HEALTHCHECK_URL`: the Render base URL, for example
      `https://<your-render-service>.onrender.com`.
+   - `RENDER_DEPLOY_ENABLED`: `true` to permit the workflow to deploy after
+     validation. Leave it unset/false until Render environment values, the
+     database role, and GitHub secrets are configured.
 4. Run the **Free-tier deployment** workflow from GitHub **Actions**, selecting
-   `main`. It runs the tests and dependency audit, applies the Alembic migration
-   using the app role, then triggers Render and probes database readiness. The
-   same ordered flow runs for later pushes to `main`.
+   `main`. It always runs tests and a dependency audit. When
+   `RENDER_DEPLOY_ENABLED` is `true`, it then applies the Alembic migration
+   using the app role, triggers Render, and probes database readiness. Later
+   pushes to `main` follow the same gated sequence.
 
 If the workflow fails, inspect its failed step before retrying. If migration
 fails, leave the old app deployed, correct the Supabase URL/role or migration
@@ -173,6 +188,11 @@ The checked-in Render blueprint and workflow are [render.yaml](./render.yaml)
 and [.github/workflows/render-free.yml](./.github/workflows/render-free.yml).
 The Supabase least-privilege role template is
 [supabase-bootstrap.sql](./backend/migrations/supabase-bootstrap.sql).
+This repository is FastAPI plus a static JavaScript dashboard, not a Next.js
+app. The Next.js `@supabase/ssr` helpers and `page.tsx` snippet are not used
+here; the dashboard signs in through Supabase Auth's HTTPS API, keeps its
+session in browser session storage, and sends a bearer token to FastAPI. The
+server checks the token with Supabase Auth and enforces the email allowlist.
 
 ## Azure production deployment
 
