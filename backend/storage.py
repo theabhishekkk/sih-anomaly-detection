@@ -16,6 +16,7 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
+    inspect,
     select,
     text,
 )
@@ -95,6 +96,16 @@ def initialize(db_path: str | Path | None = None) -> None:
 def check_database(db_path: str | Path | None = None) -> bool:
     with _engine(_database_url(db_path)).connect() as connection:
         return connection.execute(text("SELECT 1")).scalar_one() == 1
+
+
+def missing_tables(db_path: str | Path | None = None) -> list[str]:
+    engine = _engine(_database_url(db_path))
+    with engine.connect() as connection:
+        existing_tables = set(inspect(connection).get_table_names())
+    return sorted(
+        table.name for table in metadata.tables.values()
+        if table.name not in existing_tables
+    )
 
 
 def _timestamp() -> datetime:

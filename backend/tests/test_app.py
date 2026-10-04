@@ -35,6 +35,32 @@ def test_dashboard_and_static_assets_are_served(client):
     assert client.get("/").headers["content-security-policy"].startswith("default-src 'self'")
 
 
+def test_readiness_fails_when_database_migrations_are_missing(tmp_path, monkeypatch):
+    database = tmp_path / "unmigrated.sqlite3"
+    monkeypatch.setattr(storage, "check_database", lambda _: True)
+    settings = Settings(
+        environment="production",
+        database_url="postgresql+psycopg://user:password@db.example.com/burnin",
+        session_secret="a-production-session-secret-that-is-at-least-32-bytes",
+        oidc_tenant_id="tenant-123",
+        oidc_client_id="client-123",
+        oidc_client_secret="oidc-secret",
+        oidc_allowed_emails=frozenset({"qa@example.com"}),
+        public_base_url="https://burnin.example.com",
+        ollama_model="",
+        ollama_url="http://127.0.0.1:11434",
+    )
+
+    with TestClient(create_app(database, settings)) as test_client:
+        response = test_client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "Database schema is not initialized; missing tables: "
+        "calibration, decisions, screening. Apply Alembic migrations."
+    )
+
+
 def test_production_requires_secure_postgres_and_allowlisted_oidc():
     settings = Settings(
         environment="production",

@@ -382,8 +382,17 @@ def create_app(
     def readiness() -> dict[str, str]:
         try:
             storage.check_database(database_path)
+            missing_tables = storage.missing_tables(database_path)
         except SQLAlchemyError as error:
             raise HTTPException(status_code=503, detail="Database is unavailable.") from error
+        if missing_tables:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Database schema is not initialized; missing tables: "
+                    f"{', '.join(missing_tables)}. Apply Alembic migrations."
+                ),
+            )
         return {"status": "ready"}
 
     @application.get("/api/csrf")

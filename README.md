@@ -79,6 +79,11 @@ Development mode creates missing tables automatically. Production deliberately
 does not: a separate, one-shot migration job initializes the least-privilege
 application database role and applies Alembic migrations before the API rollout.
 The application does not run schema migrations at startup.
+The `backend/migrations/supabase-bootstrap.sql` script only creates the
+least-privilege database role; it does not create application tables. Apply the
+Alembic migrations using the controlled deployment workflow before starting
+the production app. Readiness returns HTTP 503 and names missing tables when
+the database is reachable but the migration has not been applied.
 
 ## Free-tier hosted demo (Render + Supabase)
 
@@ -196,6 +201,14 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
    `RENDER_DEPLOY_ENABLED` is `true`, it then applies the Alembic migration
    using the app role, triggers Render, and probes database readiness. Later
    pushes to `main` follow the same gated sequence.
+
+If the dashboard reports `Could not load saved state: Request failed (500)` and
+the logs say a relation such as `calibration` does not exist, the app role can
+connect but the schema migration is missing (or the migration workflow used a
+different database URL). Confirm GitHub's production `DATABASE_URL` matches
+Render's, set `RENDER_DEPLOY_ENABLED` to `true`, and run the **Free-tier
+deployment** workflow. Do not rerun `supabase-bootstrap.sql` as a table fix; it
+only bootstraps the role.
 
 If the workflow fails, inspect its failed step before retrying. If migration
 fails, leave the old app deployed, correct the Supabase URL/role or migration
