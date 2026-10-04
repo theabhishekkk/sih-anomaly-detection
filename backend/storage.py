@@ -16,6 +16,7 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
+    delete,
     inspect,
     select,
     text,
@@ -52,6 +53,13 @@ screening = Table(
     Column("id", Integer, primary_key=True),
     Column("payload", Text, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
+)
+screening_runs = Table(
+    "screening_runs",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("payload", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, index=True),
 )
 decisions = Table(
     "decisions",
@@ -103,7 +111,8 @@ def missing_tables(db_path: str | Path | None = None) -> list[str]:
     with engine.connect() as connection:
         existing_tables = set(inspect(connection).get_table_names())
     return sorted(
-        table.name for table in metadata.tables.values()
+        table.name
+        for table in metadata.tables.values()
         if table.name not in existing_tables
     )
 
@@ -153,6 +162,86 @@ def load_snapshot(
     if row is None:
         return None
     return {"data": json.loads(row.payload), "created_at": row.created_at.isoformat()}
+
+
+def save_screening_run(
+    db_path: str | Path | None, payload: dict[str, Any]
+) -> dict[str, Any]:
+    created_at = _timestamp()
+    serialized = json.dumps(payload, allow_nan=False)
+    engine = _engine(_database_url(db_path))
+    with engine.begin() as connection:
+        result = connection.execute(
+            screening_runs.insert().values(
+                payload=serialized,
+                created_at=created_at,
+            )
+        )
+        run_id = result.inserted_primary_key[0]
+        insert_statement = (
+            postgresql_insert(screening)
+            if engine.dialect.name == "postgresql"
+            else sqlite_insert(screening)
+        )
+        connection.execute(
+            insert_statement.values(id=1, payload=serialized, created_at=created_at)
+            .on_conflict_do_update(
+                index_elements=[screening.c.id],
+                set_={"payload": serialized, "created_at": created_at},
+            )
+        )
+        retained_ids = (
+            select(screening_runs.c.id)
+            .order_by(screening_runs.c.created_at.desc(), screening_runs.c.id.desc())
+            .limit(100)
+        )
+        connection.execute(
+            delete(screening_runs).where(~screening_runs.c.id.in_(retained_ids))
+        )
+    return {"id": run_id, "created_at": created_at.isoformat()}
+
+
+def list_screening_runs(
+    db_path: str | Path | None, limit: int = 20
+) -> list[dict[str, Any]]:
+    engine = _engine(_database_url(db_path))
+    with engine.connect() as connection:
+        rows = connection.execute(
+            select(
+                screening_runs.c.id,
+                screening_runs.c.payload,
+                screening_runs.c.created_at,
+            )
+            .order_by(screening_runs.c.created_at.desc(), screening_runs.c.id.desc())
+            .limit(limit)
+        ).all()
+    return [
+        {
+            "id": row.id,
+            "created_at": row.created_at.isoformat(),
+            "summary": json.loads(row.payload)["summary"],
+        }
+        for row in rows
+    ]
+
+
+def get_screening_run(
+    db_path: str | Path | None, run_id: int
+) -> dict[str, Any] | None:
+    engine = _engine(_database_url(db_path))
+    with engine.connect() as connection:
+        row = connection.execute(
+            select(screening_runs.c.payload, screening_runs.c.created_at).where(
+                screening_runs.c.id == run_id
+            )
+        ).first()
+    if row is None:
+        return None
+    return {
+        "id": run_id,
+        "created_at": row.created_at.isoformat(),
+        "report": json.loads(row.payload),
+    }
 
 
 def save_decision(

@@ -64,11 +64,22 @@ Without a configured/reachable Ollama service, the dashboard explicitly shows
 the deterministic screening evidence instead of pretending an LLM response was
 generated.
 
+## Dashboard capabilities
+
+After sign-in, reviewers can calibrate and screen production CSVs, search/filter/
+sort the device evidence, inspect measured and forecast values, export the
+current report to CSV, revisit the latest 25 saved screening runs (100 are
+retained), and record auditable QA decisions. The AI screening copilot summarizes
+only the latest run's evidence; configure Ollama for a local model response, or
+it provides a clearly labeled deterministic evidence summary. AI output never
+releases or rejects hardware automatically.
+
 ## Persistence and operational limits
 
-For a local SQLite run, the latest calibration, screening report, and inspector
-decisions are stored in `backend/data/sih.db`; set `SIH_DB_PATH` to change that
-path. For a local PostgreSQL stack, copy `.env.example` to `.env`, change both
+For a local SQLite run, the latest calibration, screening report, recent
+screening history, and inspector decisions are stored in `backend/data/sih.db`;
+set `SIH_DB_PATH` to change that path. For a local PostgreSQL stack, copy
+`.env.example` to `.env`, change both
 development secrets, and run:
 
 ```powershell

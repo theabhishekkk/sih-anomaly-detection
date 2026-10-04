@@ -283,6 +283,7 @@ def create_app(
             "/api/auth/refresh",
             "/api/auth/logout",
             "/api/demo",
+            "/api/demo/briefing",
         }
         response = None
         if config.production:
@@ -517,7 +518,147 @@ def create_app(
             "calibration": calibration,
             "screening": screening,
             "decisions": storage.list_decisions(database_path, limit=20),
+            "runs": storage.list_screening_runs(database_path, limit=10),
         }
+
+    @application.get("/api/runs")
+    def screening_runs(limit: int = 25) -> dict[str, Any]:
+        if not 1 <= limit <= 100:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 100.")
+        return {"runs": storage.list_screening_runs(database_path, limit)}
+
+    @application.get("/api/runs/{run_id}")
+    def screening_run(run_id: int) -> dict[str, Any]:
+        run = storage.get_screening_run(database_path, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="Screening run was not found.")
+        return run
+
+    async def build_ai_briefing(
+        report: dict[str, Any], question: str, *, demo: bool = False
+    ) -> dict[str, Any]:
+        flagged = sorted(
+            (device for device in report["devices"] if device["flagged"]),
+            key=lambda device: device["anomaly_score"],
+            reverse=True,
+        )
+        evidence = {
+            "summary": report["summary"],
+            "forecast_method": report["forecast_method"],
+            "highest_risk_devices": [
+                {
+                    "device_id": item["device_id"],
+                    "parameter": item["parameter"],
+                    "anomaly_score": item["anomaly_score"],
+                    "predicted_drift_per_hour": item["predicted_drift_per_hour"],
+                    "safety_slope": item["safety_slope"],
+                    "reason": item["reason"],
+                }
+                for item in flagged[:5]
+            ],
+        }
+        deterministic_briefing = (
+            f"{report['summary']['flagged_devices']} of "
+            f"{report['summary']['total_devices']} devices require review. "
+            + (
+                f"{flagged[0]['device_id']} has the highest robust anomaly score "
+                f"({flagged[0]['anomaly_score']:.2f}); {flagged[0]['reason']}"
+                if flagged
+                else "No device exceeded the current anomaly or drift limits."
+            )
+            + f" Forecast method: {report['forecast_method']}."
+            + " Engineering review is required; this is decision support only."
+        )
+        if demo:
+            return {
+                "answer": deterministic_briefing,
+                "source": "read-only demo screening evidence",
+                "llm_status": "demo_evidence",
+                "question": question,
+                "evidence": evidence,
+            }
+        if not config.ollama_model:
+            return {
+                "answer": deterministic_briefing,
+                "source": "screening evidence",
+                "llm_status": "not_configured",
+                "question": question,
+                "evidence": evidence,
+            }
+
+        prompt = (
+            "You are a burn-in QA evidence assistant. Use only the supplied JSON "
+            "measurements and screening results. Do not invent root causes or claim "
+            "certainty. Prioritize flagged devices and cite their identifiers and "
+            "measured evidence. Recommend verification steps, never automatic release "
+            "or rejection. State that engineering review is required. "
+            f"User question: {question or 'Summarize this screening run.'}\n"
+            f"Evidence JSON: {json.dumps(evidence, allow_nan=False)}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                response = await client.post(
+                    f"{config.ollama_url}/api/generate",
+                    json={
+                        "model": config.ollama_model,
+                        "prompt": prompt,
+                        "stream": False,
+                    },
+                )
+                response.raise_for_status()
+                body = response.json()
+                generated = body.get("response") if isinstance(body, dict) else None
+                if not isinstance(generated, str) or not generated.strip():
+                    raise ValueError("Ollama returned an empty briefing.")
+        except (httpx.HTTPError, ValueError) as error:
+            logger.warning(
+                "ai_briefing_unavailable",
+                extra={"exception_type": type(error).__name__},
+            )
+            return {
+                "answer": deterministic_briefing,
+                "source": "screening evidence",
+                "llm_status": "unavailable",
+                "question": question,
+                "evidence": evidence,
+            }
+        return {
+            "answer": generated.strip(),
+            "source": f"local Ollama model: {config.ollama_model}",
+            "llm_status": "available",
+            "question": question,
+            "evidence": evidence,
+        }
+
+    def validate_ai_question(payload: dict[str, Any]) -> str:
+        question = str(payload.get("question") or "").strip()
+        if len(question) > 500:
+            raise HTTPException(
+                status_code=400, detail="Questions must be 500 characters or fewer."
+            )
+        return question
+
+    @application.post("/api/ai/briefing")
+    async def ai_briefing(payload: dict[str, Any] = Body(default={})) -> dict[str, Any]:
+        question = validate_ai_question(payload)
+        snapshot = storage.load_snapshot(database_path, "screening")
+        if not snapshot:
+            raise HTTPException(
+                status_code=404, detail="Analyze a production lot before requesting insights."
+            )
+        return await build_ai_briefing(snapshot["data"], question)
+
+    @application.post("/api/demo/briefing")
+    async def demo_ai_briefing(
+        payload: dict[str, Any] = Body(default={}),
+    ) -> dict[str, Any]:
+        question = validate_ai_question(payload)
+        try:
+            calibration = train_calibration(_demo_reference(), direction="higher")
+            report = screen_devices(_demo_production_lot(), calibration)
+        except ValueError as error:
+            raise _service_error(error) from error
+        return await build_ai_briefing(report, question, demo=True)
 
     @application.post("/api/calibration")
     def calibrate(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
@@ -566,8 +707,8 @@ def create_app(
             )
         except ValueError as error:
             raise _service_error(error) from error
-        timestamp = storage.save_snapshot(database_path, "screening", report)
-        return {**report, "created_at": timestamp}
+        run = storage.save_screening_run(database_path, report)
+        return {**report, "run_id": run["id"], "created_at": run["created_at"]}
 
     @application.post("/api/screen/upload")
     async def upload_screening(
@@ -589,8 +730,8 @@ def create_app(
             raise _service_error(error) from error
         finally:
             await file.close()
-        timestamp = storage.save_snapshot(database_path, "screening", report)
-        return {**report, "created_at": timestamp}
+        run = storage.save_screening_run(database_path, report)
+        return {**report, "run_id": run["id"], "created_at": run["created_at"]}
 
     @application.get("/api/devices/{device_id}/explain")
     async def explain_device(device_id: str) -> dict[str, Any]:
@@ -658,7 +799,9 @@ def create_app(
         device_id = str(payload.get("device_id", "")).strip()
         action = str(payload.get("action", "")).strip()
         if config.production:
-            authenticated_user = request.session.get("user")
+            authenticated_user = getattr(request.state, "supabase_user", None)
+            if not authenticated_user:
+                authenticated_user = request.session.get("user")
             inspector = (
                 str(authenticated_user.get("email") or "").strip()
                 if isinstance(authenticated_user, dict)

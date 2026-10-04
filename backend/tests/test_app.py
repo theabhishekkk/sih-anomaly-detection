@@ -57,7 +57,7 @@ def test_readiness_fails_when_database_migrations_are_missing(tmp_path, monkeypa
     assert response.status_code == 503
     assert response.json()["detail"] == (
         "Database schema is not initialized; missing tables: "
-        "calibration, decisions, screening. Apply Alembic migrations."
+        "calibration, decisions, screening, screening_runs. Apply Alembic migrations."
     )
 
 
@@ -192,6 +192,13 @@ def test_supabase_auth_login_allowlist_and_bearer_protection(tmp_path, monkeypat
         assert demo.json()["calibration"]["device_count"] == 30
         assert demo.json()["report"]["summary"]["total_devices"] == 11
         assert demo.json()["report"]["summary"]["flagged_devices"] > 0
+        demo_briefing = client.post(
+            "/api/demo/briefing",
+            json={"question": "Which demo device needs review?"},
+        )
+        assert demo_briefing.status_code == 200
+        assert demo_briefing.json()["llm_status"] == "demo_evidence"
+        assert "read-only demo" in demo_briefing.json()["source"]
         assert storage.load_snapshot(database, "calibration") is None
         assert storage.load_snapshot(database, "screening") is None
 
@@ -211,6 +218,34 @@ def test_supabase_auth_login_allowlist_and_bearer_protection(tmp_path, monkeypat
             headers=authorized_headers,
         )
         assert calibrated.status_code == 200
+        screened = client.post(
+            "/api/screen",
+            json={
+                "devices": [
+                    {
+                        "device_id": "SUPABASE-1",
+                        "parameter": "iddq",
+                        "value_0h": 10,
+                        "value_24h": 45,
+                    }
+                ]
+            },
+            headers=authorized_headers,
+        )
+        assert screened.status_code == 200
+        decision = client.post(
+            "/api/decisions",
+            json={
+                "device_id": "SUPABASE-1",
+                "action": "approve_rejection",
+                "inspector": "spoofed@example.com",
+                "reason": "Verified high drift.",
+            },
+            headers=authorized_headers,
+        )
+        assert decision.status_code == 201
+        assert decision.json()["inspector"] == "qa@example.com"
+        assert client.get("/api/runs", headers=authorized_headers).json()["runs"]
 
         rejected = client.post(
             "/api/auth/login",
@@ -391,6 +426,114 @@ def test_calibration_screening_explain_and_durable_qa_audit(client):
     persisted_state = client.get("/api/state").json()
     assert persisted_state["calibration"]["data"]["device_count"] == 20
     assert persisted_state["screening"]["data"]["summary"]["flagged_devices"] == 1
+    assert len(persisted_state["runs"]) == 1
+    run_id = persisted_state["runs"][0]["id"]
+    assert client.get(f"/api/runs/{run_id}").json()["report"]["summary"]["flagged_devices"] == 1
+    assert client.get("/api/runs/9999").status_code == 404
+    assert client.get("/api/runs?limit=101").status_code == 400
+
+
+def test_screening_history_retains_only_the_latest_100_runs(tmp_path):
+    database = tmp_path / "history-retention.sqlite3"
+    storage.initialize(database)
+    for _ in range(102):
+        storage.save_screening_run(
+            database,
+            {
+                "summary": {"total_devices": 1, "flagged_devices": 0},
+                "devices": [],
+            },
+        )
+
+    runs = storage.list_screening_runs(database, limit=100)
+
+    assert len(runs) == 100
+    assert runs[0]["id"] == 102
+    assert runs[-1]["id"] == 3
+
+
+def test_ai_briefing_is_grounded_in_latest_screening_and_has_clear_fallback(client):
+    assert client.post("/api/ai/briefing", json={}).status_code == 404
+    client.post("/api/calibration", json={"reference": reference_lot()})
+    client.post(
+        "/api/screen",
+        json={
+            "devices": [
+                {
+                    "device_id": "BRIEF-1",
+                    "parameter": "iddq",
+                    "value_0h": 10,
+                    "value_24h": 45,
+                }
+            ]
+        },
+    )
+
+    response = client.post(
+        "/api/ai/briefing", json={"question": "What should I review first?"}
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["llm_status"] == "not_configured"
+    assert result["source"] == "screening evidence"
+    assert "BRIEF-1" in result["answer"]
+    assert result["evidence"]["highest_risk_devices"][0]["device_id"] == "BRIEF-1"
+
+
+def test_ai_briefing_uses_configured_local_model_with_screening_evidence(
+    tmp_path, monkeypatch
+):
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"response": "Review MODEL-BRIEF-1 using the measured 24-hour reading."}
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            assert timeout == 12.0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, json):
+            captured.update(json)
+            return FakeResponse()
+
+    monkeypatch.setenv("OLLAMA_MODEL", "local-test-model")
+    monkeypatch.setenv("OLLAMA_URL", "http://127.0.0.1:11434")
+    monkeypatch.setattr(backend_app.httpx, "AsyncClient", FakeAsyncClient)
+    with TestClient(create_app(tmp_path / "briefing-ollama.sqlite3")) as client:
+        client.post("/api/calibration", json={"reference": reference_lot()})
+        client.post(
+            "/api/screen",
+            json={
+                "devices": [
+                    {
+                        "device_id": "MODEL-BRIEF-1",
+                        "parameter": "iddq",
+                        "value_0h": 10,
+                        "value_24h": 45,
+                    }
+                ]
+            },
+        )
+
+        response = client.post(
+            "/api/ai/briefing", json={"question": "What needs review?"}
+        )
+
+    assert response.status_code == 200
+    assert response.json()["llm_status"] == "available"
+    assert "MODEL-BRIEF-1" in captured["prompt"]
+    assert "never automatic release or rejection" in captured["prompt"]
 
 
 def test_csv_upload_and_validation(client):

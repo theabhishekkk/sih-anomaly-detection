@@ -1,4 +1,11 @@
-const state = { calibration: null, report: null, decisions: [], selected: null };
+const state = {
+  calibration: null,
+  report: null,
+  decisions: [],
+  runs: [],
+  selected: null,
+  user: null,
+};
 const $ = (selector) => document.querySelector(selector);
 let csrfToken;
 let authConfig = { supabase_enabled: false };
@@ -71,7 +78,9 @@ async function requestJson(url, options = {}) {
       ? payload.detail.map((item) => item.msg || 'Invalid request').join('; ')
       : payload.detail;
     const message = detail || payload.error || `Request failed (${response.status}).`;
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
@@ -136,11 +145,20 @@ function renderDevices() {
   const body = $('#device-rows');
   body.replaceChildren();
   const filter = $('#device-filter').value;
-  const devices = (state.report?.devices || []).filter((device) => {
-    if (filter === 'flagged') return device.flagged;
-    if (filter === 'normal') return !device.flagged;
-    return true;
-  });
+  const query = $('#device-search').value.trim().toLowerCase();
+  const sort = $('#device-sort').value;
+  const devices = (state.report?.devices || [])
+    .filter((device) => {
+      if (filter === 'flagged' && !device.flagged) return false;
+      if (filter === 'normal' && device.flagged) return false;
+      return `${device.device_id} ${device.lot_id || ''} ${device.parameter}`
+        .toLowerCase().includes(query);
+    })
+    .sort((left, right) => {
+      if (sort === 'device') return left.device_id.localeCompare(right.device_id);
+      if (sort === 'score-low') return left.anomaly_score - right.anomaly_score;
+      return right.anomaly_score - left.anomaly_score;
+    });
   if (!devices.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
@@ -190,6 +208,43 @@ function renderDevices() {
   }
 }
 
+function renderHistory(runs) {
+  state.runs = runs || [];
+  const container = $('#run-history');
+  container.replaceChildren();
+  if (!state.runs.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-copy';
+    empty.textContent = 'Your completed production screenings will appear here.';
+    container.append(empty);
+    return;
+  }
+  for (const run of state.runs) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'run-history-item';
+    const title = document.createElement('strong');
+    title.textContent = `Run #${run.id} · ${run.summary.total_devices} devices`;
+    const meta = document.createElement('span');
+    meta.textContent = `${run.summary.flagged_devices} for review · ${new Date(run.created_at).toLocaleString()}`;
+    button.append(title, meta);
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        const result = await requestJson(`/api/runs/${run.id}`);
+        state.demoMode = false;
+        renderReport(result.report, result.created_at);
+        $('#lot-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (error) {
+        setMessage('#screening-message', `Could not load screening run: ${error.message}`, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    });
+    container.append(button);
+  }
+}
+
 function renderAudit(decisions) {
   state.decisions = decisions || [];
   $('#audit-count').textContent = `${state.decisions.length} logged`;
@@ -225,7 +280,28 @@ function renderAudit(decisions) {
 async function refreshState() {
   if (authConfig.supabase_enabled && !supabaseSession?.access_token) {
     setMessage('#auth-message', 'Sign in with an allowed QA account.');
+    $('#supabase-login').hidden = false;
+    $('#sign-out').hidden = true;
     $('#demo-button').disabled = false;
+    return;
+  }
+  try {
+    const identity = await requestJson('/api/whoami');
+    state.user = identity.user || null;
+    $('#signed-in-user').textContent = identity.user?.name || identity.user?.email || '';
+    $('#sign-out').hidden = !identity.authenticated;
+    $('#supabase-login').hidden = identity.authenticated || !authConfig.supabase_enabled;
+    if (identity.user?.email) $('#inspector-name').value = identity.user.email;
+  } catch (error) {
+    if (error.status === 401 && authConfig.supabase_enabled) {
+      saveSupabaseSession(null);
+      $('#supabase-login').hidden = false;
+      $('#sign-out').hidden = true;
+      $('#signed-in-user').textContent = '';
+      setMessage('#auth-message', 'Your session expired. Please sign in again.', 'error');
+      return;
+    }
+    setMessage('#auth-message', `Could not verify sign-in: ${error.message}`, 'error');
     return;
   }
   try {
@@ -233,18 +309,10 @@ async function refreshState() {
     renderCalibration(data.calibration?.data || null);
     renderReport(data.screening?.data || null, data.screening?.created_at);
     renderAudit(data.decisions);
+    renderHistory(data.runs);
     state.demoMode = false;
-    const identity = await requestJson('/api/whoami');
-    $('#signed-in-user').textContent = identity.user?.name || '';
-    $('#sign-out').hidden = !identity.authenticated;
-    $('#supabase-login').hidden = identity.authenticated;
     $('#demo-button').disabled = false;
   } catch (error) {
-    if (authConfig.supabase_enabled) {
-      $('#supabase-login').hidden = false;
-      $('#sign-out').hidden = true;
-      $('#signed-in-user').textContent = '';
-    }
     setMessage('#screening-message', `Could not load saved state: ${error.message}`, 'error');
   }
 }
@@ -376,6 +444,7 @@ async function screenLot() {
       throw new Error('Choose a production-lot CSV, or use the interactive demo.');
     }
     renderReport(result, result.created_at);
+    renderHistory((await requestJson('/api/runs')).runs);
     setMessage(
       '#screening-message',
       `${result.summary.flagged_devices} of ${result.summary.total_devices} devices require review.`,
@@ -383,6 +452,76 @@ async function screenLot() {
     );
   } catch (error) {
     setMessage('#screening-message', error.message, 'error');
+  } finally {
+    busy(button, false);
+  }
+}
+
+function csvCell(value) {
+  const text = value == null ? '' : String(value);
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function exportDevices() {
+  const devices = state.report?.devices || [];
+  if (!devices.length) {
+    setMessage('#screening-message', 'There are no screening results to export.', 'error');
+    return;
+  }
+  const columns = [
+    ['device_id', 'Device ID'],
+    ['lot_id', 'Lot ID'],
+    ['parameter', 'Parameter'],
+    ['value_0h', '0h reading'],
+    ['value_24h', '24h reading'],
+    ['prediction_168h', '168h forecast'],
+    ['anomaly_score', 'Robust score'],
+    ['predicted_drift_per_hour', 'Drift per hour'],
+    ['flagged', 'Requires review'],
+    ['reason', 'Evidence'],
+  ];
+  const csv = [
+    columns.map(([, heading]) => csvCell(heading)).join(','),
+    ...devices.map((device) => columns.map(([key]) => csvCell(device[key])).join(',')),
+  ].join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'burn-in-screening-results.csv';
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function askCopilot(event) {
+  event.preventDefault();
+  const button = $('#ai-ask');
+  busy(button, true, 'Reviewing evidence…');
+  $('#ai-answer').textContent = 'Reviewing the latest measured evidence…';
+  $('#ai-evidence').replaceChildren();
+  try {
+    const endpoint = state.demoMode ? '/api/demo/briefing' : '/api/ai/briefing';
+    const result = await requestJson(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: $('#ai-question').value.trim() }),
+    });
+    $('#ai-answer').textContent = result.answer;
+    $('#ai-status').textContent = result.llm_status === 'available'
+      ? result.source.toUpperCase()
+      : result.llm_status === 'demo_evidence'
+        ? 'READ-ONLY DEMO EVIDENCE'
+      : result.llm_status === 'not_configured'
+        ? 'EVIDENCE-BASED · NO MODEL CONFIGURED'
+        : 'EVIDENCE-BASED · MODEL UNAVAILABLE';
+    for (const device of result.evidence.highest_risk_devices) {
+      const item = document.createElement('span');
+      item.className = 'evidence-chip';
+      item.textContent = `${device.device_id} · ${device.parameter} · score ${formatNumber(device.anomaly_score)}`;
+      $('#ai-evidence').append(item);
+    }
+  } catch (error) {
+    $('#ai-answer').textContent = error.message;
+    $('#ai-status').textContent = 'BRIEFING UNAVAILABLE';
   } finally {
     busy(button, false);
   }
@@ -509,10 +648,10 @@ async function showDevice(device) {
 
 async function recordDecision(action) {
   if (!state.selected) return;
-  const inspector = $('#inspector-name').value.trim();
+  const inspector = state.user?.email || $('#inspector-name').value.trim();
   const reason = $('#decision-reason').value.trim();
-  if (!inspector || !reason) {
-    setMessage('#decision-message', 'Inspector name and decision rationale are required.', 'error');
+  if ((!inspector && !authConfig.supabase_enabled) || !reason) {
+    setMessage('#decision-message', 'Inspector identity and decision rationale are required.', 'error');
     return;
   }
   try {
@@ -573,6 +712,10 @@ $('#calibrate-button').addEventListener('click', calibrate);
 $('#screen-button').addEventListener('click', screenLot);
 $('#demo-button').addEventListener('click', loadDemo);
 $('#device-filter').addEventListener('change', renderDevices);
+$('#device-search').addEventListener('input', renderDevices);
+$('#device-sort').addEventListener('change', renderDevices);
+$('#export-button').addEventListener('click', exportDevices);
+$('#ai-form').addEventListener('submit', askCopilot);
 $('#close-dialog').addEventListener('click', () => $('#device-dialog').close());
 $('#sign-out').addEventListener('click', signOut);
 $('#supabase-login').addEventListener('submit', signInWithSupabase);

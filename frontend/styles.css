@@ -137,7 +137,22 @@ h2 { margin-bottom: 0; font-family: "Space Grotesk", sans-serif; font-size: 20px
 #metric-calibration { font-size: 19px; }
 
 .workspace-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px; }
+.insights-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(260px, .8fr); gap: 16px; margin-bottom: 18px; }
 .card { padding: 21px; }
+.insight-card, .history-card { min-width: 0; }
+.ai-card { background: radial-gradient(ellipse at 100% 0, rgba(53, 126, 127, .13), transparent 55%), linear-gradient(145deg, rgba(21, 33, 52, .97), rgba(16, 26, 43, .97)); }
+.insight-card .section-heading { flex-wrap: wrap; }
+.ai-status { margin-left: auto; color: var(--teal); font: 9px "DM Mono", monospace; }
+.ai-form { display: flex; gap: 9px; }
+.ai-form input { flex: 1; min-width: 0; }
+.ai-answer { min-height: 48px; margin: 15px 0 0; color: #d5e1f0; font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
+.ai-evidence { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 11px; }
+.evidence-chip { padding: 6px 8px; border: 1px solid rgba(243, 197, 107, .25); border-radius: 20px; background: rgba(243, 197, 107, .07); color: var(--amber); font: 9px "DM Mono", monospace; }
+.run-history { display: grid; gap: 8px; max-height: 210px; overflow: auto; }
+.run-history-item { display: grid; gap: 5px; padding: 10px 11px; border: 1px solid rgba(137, 164, 197, .12); border-radius: 8px; background: rgba(9, 16, 28, .45); text-align: left; cursor: pointer; }
+.run-history-item:hover { border-color: rgba(75, 214, 196, .45); }
+.run-history-item strong { color: var(--text); font-size: 10px; }
+.run-history-item span { color: var(--muted); font-size: 9px; }
 .workflow-card { min-height: 373px; }
 .section-heading { display: flex; align-items: center; gap: 13px; margin-bottom: 14px; }
 .section-heading .eyebrow { margin-bottom: 4px; }
@@ -205,12 +220,15 @@ input:focus, select:focus { border-color: var(--teal); }
 .lot-card { padding: 21px 0 0; overflow: hidden; }
 .lot-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; padding: 0 21px 17px; }
 .lot-heading .eyebrow { margin-bottom: 5px; }
+.table-tools { display: flex; align-items: center; justify-content: end; flex-wrap: wrap; gap: 7px; }
+.search-control input { width: 170px; }
 .run-time { margin-left: 8px; color: var(--subtle); font: 10px "DM Mono", monospace; letter-spacing: 0; }
 .filter-control select { min-width: 130px; }
 .table-wrap { width: 100%; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; white-space: nowrap; }
 thead { background: rgba(9, 16, 28, .55); }
 th { padding: 11px 14px; color: var(--subtle); font: 9px "DM Mono", monospace; letter-spacing: .06em; text-align: left; }
+.export-button { min-height: 35px; padding: 0 10px; font-size: 10px; }
 td { padding: 13px 14px; border-top: 1px solid rgba(137, 164, 197, .1); color: #cbd7e7; font-size: 11px; }
 tbody tr:hover { background: rgba(75, 214, 196, .035); }
 .device-link { padding: 0; border: 0; background: transparent; color: var(--text); cursor: pointer; font: 600 12px "DM Sans", sans-serif; }
@@ -281,6 +299,7 @@ tbody tr:hover { background: rgba(75, 214, 196, .035); }
   .topbar-right { flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
   .auth-form { order: 2; width: 100%; justify-content: flex-end; }
   .workspace-grid { grid-template-columns: 1fr; }
+  .insights-grid { grid-template-columns: 1fr; }
   .metrics { grid-template-columns: repeat(2, 1fr); }
   .hero { align-items: start; flex-direction: column; }
   .workflow-card { min-height: unset; }
@@ -302,6 +321,11 @@ tbody tr:hover { background: rgba(75, 214, 196, .035); }
   .lot-heading { padding-right: 15px; padding-left: 15px; }
   .field-row { align-items: start; flex-direction: column; gap: 6px; }
   .field-row input, .field-row select { width: 100%; max-width: none; }
+  .lot-heading { align-items: start; flex-direction: column; }
+  .table-tools { justify-content: start; width: 100%; }
+  .search-control { flex: 1 1 100%; }
+  .search-control input { width: 100%; }
+  .ai-form { align-items: stretch; flex-direction: column; }
   .evidence-grid { grid-template-columns: 1fr 1fr; }
   .decision-fields { grid-template-columns: 1fr; }
   .decision-buttons { flex-direction: column; }

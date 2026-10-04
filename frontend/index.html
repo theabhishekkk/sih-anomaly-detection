@@ -68,6 +68,44 @@
         </article>
       </section>
 
+      <section class="insights-grid">
+        <article class="card insight-card ai-card">
+          <div class="section-heading">
+            <div class="step-number">✦</div>
+            <div>
+              <p class="eyebrow">EVIDENCE-GROUNDED ASSISTANT</p>
+              <h2>AI screening copilot</h2>
+            </div>
+            <span class="ai-status" id="ai-status">READY WHEN A LOT IS SCREENED</span>
+          </div>
+          <p class="muted">
+            Ask about the latest lot. Answers use its measured results and clearly
+            identify whether a local language model or evidence-based fallback responded.
+          </p>
+          <form id="ai-form" class="ai-form">
+            <label class="sr-only" for="ai-question">Question about the latest screening</label>
+            <input id="ai-question" maxlength="500" placeholder="Which device needs review first, and why?" />
+            <button class="button button-primary" type="submit" id="ai-ask">Ask copilot</button>
+          </form>
+          <p class="ai-answer" id="ai-answer" role="status">
+            Run a screening to generate a lot-specific engineering briefing.
+          </p>
+          <div class="ai-evidence" id="ai-evidence"></div>
+        </article>
+        <article class="card history-card">
+          <div class="section-heading">
+            <div class="step-number">↺</div>
+            <div>
+              <p class="eyebrow">PERSISTED SCREENINGS</p>
+              <h2>Recent lot history</h2>
+            </div>
+          </div>
+          <div id="run-history" class="run-history">
+            <p class="empty-copy">Your completed production screenings will appear here.</p>
+          </div>
+        </article>
+      </section>
+
       <section class="workspace-grid">
         <article class="card workflow-card">
           <div class="section-heading">
@@ -131,20 +169,35 @@
         </article>
       </section>
 
-      <section class="card lot-card">
+      <section class="card lot-card" id="lot-overview">
         <div class="lot-heading">
           <div>
             <p class="eyebrow">LATEST SCREENING RUN</p>
             <h2>Lot overview <span class="run-time" id="run-time"></span></h2>
           </div>
-          <label class="filter-control" for="device-filter">
-            <span class="sr-only">Filter devices</span>
-            <select id="device-filter">
-              <option value="all">All devices</option>
-              <option value="flagged">Flagged only</option>
-              <option value="normal">Passed</option>
-            </select>
-          </label>
+          <div class="table-tools">
+            <label class="search-control" for="device-search">
+              <span class="sr-only">Search devices</span>
+              <input id="device-search" type="search" placeholder="Search device or lot" />
+            </label>
+            <label class="filter-control" for="device-filter">
+              <span class="sr-only">Filter devices</span>
+              <select id="device-filter">
+                <option value="all">All devices</option>
+                <option value="flagged">Flagged only</option>
+                <option value="normal">Passed</option>
+              </select>
+            </label>
+            <label class="sort-control" for="device-sort">
+              <span class="sr-only">Sort devices</span>
+              <select id="device-sort">
+                <option value="risk">Highest risk</option>
+                <option value="device">Device ID</option>
+                <option value="score-low">Lowest score</option>
+              </select>
+            </label>
+            <button class="button button-secondary export-button" id="export-button" type="button">Export CSV</button>
+          </div>
         </div>
         <div class="table-wrap">
           <table>
