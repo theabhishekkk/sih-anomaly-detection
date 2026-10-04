@@ -60,6 +60,25 @@ def test_render_external_url_is_used_as_the_production_origin(monkeypatch):
     assert Settings.from_environment().public_base_url == "https://sih-burnin.onrender.com"
 
 
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "postgres://burnin:secret@db.example.com/postgres?sslmode=require",
+        "postgresql://burnin:secret@db.example.com/postgres?sslmode=require",
+        "postgresql+psycopg2://burnin:secret@db.example.com/postgres?sslmode=require",
+    ],
+)
+def test_generic_postgres_urls_use_installed_psycopg3_driver(database_url, monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    settings = Settings.from_environment()
+
+    assert settings.database_url.startswith("postgresql+psycopg://")
+    assert storage._database_url(database_url).startswith("postgresql+psycopg://")
+    engine = storage._engine(settings.database_url)
+    assert engine.dialect.name == "postgresql"
+    assert engine.dialect.driver == "psycopg"
+
+
 def test_supabase_auth_login_allowlist_and_bearer_protection(tmp_path, monkeypatch):
     database = tmp_path / "supabase-auth.sqlite3"
     storage.initialize(database)

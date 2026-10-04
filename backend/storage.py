@@ -23,10 +23,20 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+if __package__:
+    from .settings import normalize_database_url
+else:
+    from settings import normalize_database_url
+
 DEFAULT_DB_PATH = Path(
     os.getenv("SIH_DB_PATH", str(Path(__file__).resolve().parent / "data" / "sih.db"))
 )
-DEFAULT_DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+_CONFIGURED_DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DEFAULT_DATABASE_URL = (
+    normalize_database_url(_CONFIGURED_DATABASE_URL)
+    if _CONFIGURED_DATABASE_URL
+    else ""
+)
 metadata = MetaData()
 calibration = Table(
     "calibration",
@@ -58,7 +68,7 @@ SNAPSHOTS = {"calibration": calibration, "screening": screening}
 
 def _database_url(db_path: str | Path | None) -> str:
     if isinstance(db_path, str) and "://" in db_path:
-        return db_path
+        return normalize_database_url(db_path)
     if db_path is None and DEFAULT_DATABASE_URL:
         return DEFAULT_DATABASE_URL
     if db_path is None:

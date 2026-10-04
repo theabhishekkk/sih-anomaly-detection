@@ -4,6 +4,18 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from sqlalchemy.engine import make_url
+
+
+def normalize_database_url(database_url: str) -> str:
+    """Use the installed Psycopg 3 driver for PostgreSQL URLs."""
+    url = make_url(database_url)
+    if url.drivername in {"postgres", "postgresql", "postgresql+psycopg2"}:
+        return url.set(drivername="postgresql+psycopg").render_as_string(
+            hide_password=False
+        )
+    return database_url
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -47,8 +59,10 @@ class Settings:
         ).resolve()
         return cls(
             environment=os.getenv("APP_ENV", "development").strip().lower(),
-            database_url=os.getenv("DATABASE_URL", "").strip()
-            or f"sqlite+pysqlite:///{sqlite_path.as_posix()}",
+            database_url=normalize_database_url(
+                os.getenv("DATABASE_URL", "").strip()
+                or f"sqlite+pysqlite:///{sqlite_path.as_posix()}"
+            ),
             session_secret=os.getenv("APP_SESSION_SECRET", ""),
             oidc_tenant_id=os.getenv("OIDC_TENANT_ID", "").strip(),
             oidc_client_id=os.getenv("OIDC_CLIENT_ID", "").strip(),

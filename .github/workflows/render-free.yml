@@ -55,8 +55,8 @@ jobs:
       - name: Check deployment configuration
         run: |
           set -euo pipefail
-          if [[ "$DATABASE_URL" != postgresql+psycopg://* ]]; then
-            echo "Set production DATABASE_URL to the Supabase session-pooler SQLAlchemy URL." >&2
+          if [[ "$DATABASE_URL" != postgresql+psycopg://* && "$DATABASE_URL" != postgresql://* && "$DATABASE_URL" != postgres://* ]]; then
+            echo "Set production DATABASE_URL to the Supabase PostgreSQL session-pooler URL." >&2
             exit 1
           fi
           if [[ -z "$RENDER_DEPLOY_HOOK" || -z "$APP_HEALTHCHECK_URL" ]]; then

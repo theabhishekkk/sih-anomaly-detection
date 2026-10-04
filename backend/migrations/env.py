@@ -7,14 +7,16 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from backend.storage import metadata
+from backend.settings import normalize_database_url
 
 config = context.config
 if config.config_file_name:
     fileConfig(config.config_file_name)
 
-database_url = os.getenv("DATABASE_URL")
-if not database_url:
+configured_database_url = os.getenv("DATABASE_URL", "").strip()
+if not configured_database_url:
     raise RuntimeError("DATABASE_URL must be configured to run database migrations.")
+database_url = normalize_database_url(configured_database_url)
 config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 target_metadata = metadata
 

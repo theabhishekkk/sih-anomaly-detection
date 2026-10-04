@@ -118,13 +118,15 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
    percent-encode special characters in the password:
 
    ```text
-   postgresql+psycopg://burnin_app.<PROJECT-REF>:<URL-ENCODED-PASSWORD>@<SESSION-POOLER-HOST>:5432/postgres?sslmode=require
+   postgresql://burnin_app.<PROJECT-REF>:<URL-ENCODED-PASSWORD>@<SESSION-POOLER-HOST>:5432/postgres?sslmode=require
    ```
 
    Keep the session-pooler username format `burnin_app.<PROJECT-REF>` shown
    above. Copy the actual pooler host from Supabase; do not guess it. Keep this
    URL private. Use it as `DATABASE_URL` in Render and as the GitHub Actions
-   secret in section D.
+   secret in section D. The app and migration runner map the generic PostgreSQL
+   URL Supabase provides to the installed Psycopg 3 driver; the
+   `postgresql+psycopg://` SQLAlchemy form is also accepted.
 
 4. In Supabase **Authentication → Users**, create/invite each QA reviewer using
    the email address you plan to allow. Use these same exact emails in
