@@ -146,7 +146,8 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
    build needs both `backend/` and `frontend/` in its build context.
 2. Set these Render environment variables (the public key is safe to expose,
    but the database URL and session secret are not):
-   - `APP_ENV`: `production`
+   - `APP_ENV`: `production` (Render is also automatically treated as
+     production when `RENDER_EXTERNAL_URL` is present.)
    - `DATABASE_URL`: the Supabase session-pooler URL from section B.
    - `APP_SESSION_SECRET`: a new random value of at least 32 characters. Do
      not reuse a database password.
@@ -161,6 +162,13 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
    needed for this same-origin FastAPI dashboard. Verify
    `https://sih-anomaly-detection.onrender.com/health/ready` returns
    `{"status":"ready"}`.
+   If startup logs show a database IP beginning `2406:` and `Network is
+   unreachable`, the service is using an IPv6-only database endpoint. In
+   Supabase **Connect**, copy the **Session pooler** connection string (shared
+   pooler, port `5432`) and update Render's `DATABASE_URL` with that pooler
+   host; do not use the direct `db.<project-ref>.supabase.co` endpoint on
+   Render's IPv4-only network. Use the same URL in GitHub's production
+   `DATABASE_URL` secret so migrations reach the same database.
 4. In Render service settings, create a **Deploy Hook**. Treat its URL as a
    secret and add it to GitHub in the next section.
 

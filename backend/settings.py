@@ -57,8 +57,11 @@ class Settings:
                 str(Path(__file__).resolve().parent / "data" / "sih.db"),
             )
         ).resolve()
+        environment = os.getenv("APP_ENV", "development").strip().lower()
+        if os.getenv("RENDER_EXTERNAL_URL", "").strip():
+            environment = "production"
         return cls(
-            environment=os.getenv("APP_ENV", "development").strip().lower(),
+            environment=environment,
             database_url=normalize_database_url(
                 os.getenv("DATABASE_URL", "").strip()
                 or f"sqlite+pysqlite:///{sqlite_path.as_posix()}"

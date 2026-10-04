@@ -60,6 +60,13 @@ def test_render_external_url_is_used_as_the_production_origin(monkeypatch):
     assert Settings.from_environment().public_base_url == "https://sih-burnin.onrender.com"
 
 
+def test_render_runtime_cannot_fall_back_to_development_mode(monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", "https://sih-burnin.onrender.com")
+
+    assert Settings.from_environment().production is True
+
+
 @pytest.mark.parametrize(
     "database_url",
     [
