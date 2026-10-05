@@ -98,12 +98,13 @@ evidence-based and explicitly labeled.
 
 ## Dashboard capabilities
 
-After sign-in, reviewers can calibrate and screen production CSVs, search/filter/
-sort the device evidence, inspect measured and forecast values, export the
-current report to CSV, revisit the latest 25 saved screening runs (100 are
-retained), record auditable QA decisions, and use the multi-turn AI copilot with
-the latest run's evidence. AI output never releases or rejects hardware
-automatically.
+After sign-in, reviewers can calibrate and screen production CSVs, review a live
+lot-intelligence dashboard with score distributions, parameter hotspots,
+prioritized flagged devices, and recent saved-run trends, search/filter/sort the
+device evidence, inspect measured and forecast values, export the current report
+to CSV, revisit saved screening runs, record auditable QA decisions, and use the
+multi-turn AI copilot with the latest run's evidence. AI output never releases
+or rejects hardware automatically.
 
 ## Persistence and operational limits
 

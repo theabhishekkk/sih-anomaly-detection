@@ -68,6 +68,83 @@
         </article>
       </section>
 
+      <section class="intel-section" aria-labelledby="intel-title">
+        <div class="intel-heading">
+          <div>
+            <p class="eyebrow">LOT INTELLIGENCE · LIVE FROM SCREENING EVIDENCE</p>
+            <h2 id="intel-title">Production health, at a glance</h2>
+          </div>
+          <span class="intel-context" id="intel-context">Waiting for a screened lot</span>
+        </div>
+        <div class="intel-grid">
+          <article class="card intel-verdict">
+            <div class="intel-card-heading">
+              <span class="intel-icon" aria-hidden="true">◈</span>
+              <span class="metric-label">RECOMMENDED REVIEW</span>
+            </div>
+            <strong class="verdict-title" id="lot-verdict">No lot analyzed</strong>
+            <p id="lot-verdict-copy" class="intel-copy">Screen a production lot to see its review status and evidence summary.</p>
+            <div class="intel-stats">
+              <div><strong id="intel-reviewed">—</strong><span>devices assessed</span></div>
+              <div><strong id="intel-review-rate">—</strong><span>require review</span></div>
+              <div><strong id="intel-parameters">—</strong><span>parameters tracked</span></div>
+            </div>
+          </article>
+
+          <article class="card intel-card">
+            <div class="intel-card-heading">
+              <span class="metric-label">ROBUST SCORE DISTRIBUTION</span>
+              <span class="intel-unit">READINGS</span>
+            </div>
+            <p class="intel-copy">How measured device signals spread across calibrated risk bands.</p>
+            <div id="risk-distribution" class="risk-distribution" role="img" aria-label="No screening readings yet">
+              <span class="risk-segment risk-low"></span>
+              <span class="risk-segment risk-watch"></span>
+              <span class="risk-segment risk-elevated"></span>
+              <span class="risk-segment risk-high"></span>
+            </div>
+            <div id="risk-legend" class="risk-legend"></div>
+          </article>
+
+          <article class="card intel-card">
+            <div class="intel-card-heading">
+              <span class="metric-label">PARAMETER HOTSPOTS</span>
+              <span class="intel-unit">FLAGGED READINGS</span>
+            </div>
+            <p class="intel-copy">Select a parameter to narrow the device evidence table.</p>
+            <div id="parameter-hotspots" class="parameter-hotspots">
+              <p class="empty-copy">Screen a lot to compare parameter risk.</p>
+            </div>
+          </article>
+
+          <article class="card intel-card intel-queue-card">
+            <div class="intel-card-heading">
+              <span class="metric-label">PRIORITIZED REVIEW QUEUE</span>
+              <span class="intel-unit">TOP SIGNALS</span>
+            </div>
+            <p class="intel-copy">Open a device to inspect its readings, forecast, and evidence.</p>
+            <div id="review-queue" class="review-queue">
+              <p class="empty-copy">Flagged devices will appear here after screening.</p>
+            </div>
+          </article>
+
+          <article class="card intel-card intel-trend-card">
+            <div class="intel-card-heading">
+              <span class="metric-label">RECENT LOT TREND</span>
+              <span id="trend-caption" class="intel-unit">SAVED RUNS</span>
+            </div>
+            <p class="intel-copy">Share of devices marked for review in recent persisted runs.</p>
+            <div id="run-trend" class="run-trend">
+              <p class="empty-copy">Complete a screening to start a trend.</p>
+            </div>
+            <div class="forecast-note">
+              <span aria-hidden="true">ⓘ</span>
+              <span id="forecast-method-note">Forecast method and limitations will appear with screening results.</span>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section class="insights-grid">
         <article class="card insight-card ai-card">
           <div class="section-heading">

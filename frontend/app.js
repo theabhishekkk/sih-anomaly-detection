@@ -131,6 +131,7 @@ function renderReport(report, createdAt) {
     $('#metric-health').textContent = '—';
     $('#run-time').textContent = '';
     renderDevices();
+    renderIntelligence();
     return;
   }
   const summary = report.summary;
@@ -141,6 +142,216 @@ function renderReport(report, createdAt) {
     ? new Date(createdAt).toLocaleString()
     : '';
   renderDevices();
+  renderIntelligence();
+}
+
+function renderIntelligence() {
+  const report = state.report;
+  const devices = report?.devices || [];
+  const context = $('#intel-context');
+  const distribution = $('#risk-distribution');
+  const legend = $('#risk-legend');
+  const hotspotList = $('#parameter-hotspots');
+  const queue = $('#review-queue');
+  const trend = $('#run-trend');
+  const bands = [
+    { label: 'Routine · <1', className: 'risk-low', count: 0 },
+    { label: 'Watch · 1–2', className: 'risk-watch', count: 0 },
+    { label: 'Elevated · 2–3.5', className: 'risk-elevated', count: 0 },
+    { label: 'High · ≥3.5', className: 'risk-high', count: 0 },
+  ];
+
+  if (!report) {
+    context.textContent = 'Waiting for a screened lot';
+    $('#lot-verdict').textContent = 'No lot analyzed';
+    $('#lot-verdict').className = 'verdict-title';
+    $('#lot-verdict-copy').textContent = 'Screen a production lot to see its review status and evidence summary.';
+    $('#intel-reviewed').textContent = '—';
+    $('#intel-review-rate').textContent = '—';
+    $('#intel-parameters').textContent = '—';
+    distribution.setAttribute('aria-label', 'No screening readings yet');
+    distribution.querySelectorAll('.risk-segment').forEach((segment) => {
+      segment.style.width = '0%';
+    });
+    legend.replaceChildren();
+    hotspotList.innerHTML = '<p class="empty-copy">Screen a lot to compare parameter risk.</p>';
+    queue.innerHTML = '<p class="empty-copy">Flagged devices will appear here after screening.</p>';
+    $('#forecast-method-note').textContent = 'Forecast method and limitations will appear with screening results.';
+    renderTrend();
+    return;
+  }
+
+  const summary = report.summary;
+  const flaggedPercent = summary.total_devices
+    ? (100 * summary.flagged_devices) / summary.total_devices
+    : 0;
+  context.textContent = state.demoMode ? 'Interactive demo · not saved' : 'Latest screening evidence';
+  const verdict = $('#lot-verdict');
+  verdict.textContent = summary.flagged_devices
+    ? 'Engineering review recommended'
+    : 'No current review flags';
+  verdict.className = `verdict-title${summary.flagged_devices ? ' needs-review' : ' within-limits'}`;
+  $('#lot-verdict-copy').textContent = summary.flagged_devices
+    ? `${summary.flagged_devices} of ${summary.total_devices} devices have an anomaly or drift limit flag. Review the highest-priority evidence before making a QA decision.`
+    : `No anomaly or safety-slope thresholds were exceeded across ${summary.total_devices} screened devices. This is screening evidence, not an automatic release decision.`;
+  $('#intel-reviewed').textContent = summary.total_devices;
+  $('#intel-review-rate').textContent = `${formatNumber(flaggedPercent)}%`;
+  $('#intel-parameters').textContent = new Set(devices.map((device) => device.parameter)).size;
+
+  const parameters = new Map();
+  const byDevice = new Map();
+  for (const device of devices) {
+    const score = Math.max(0, Number(device.anomaly_score) || 0);
+    const bandIndex = score < 1 ? 0 : score < 2 ? 1 : score < 3.5 ? 2 : 3;
+    bands[bandIndex].count += 1;
+
+    if (!parameters.has(device.parameter)) {
+      parameters.set(device.parameter, { total: 0, flagged: 0, maxScore: 0 });
+    }
+    const parameter = parameters.get(device.parameter);
+    parameter.total += 1;
+    parameter.flagged += Number(Boolean(device.flagged));
+    parameter.maxScore = Math.max(parameter.maxScore, score);
+
+    const previous = byDevice.get(device.device_id);
+    if (!previous || Number(Boolean(device.flagged)) > Number(Boolean(previous.flagged))
+        || (device.flagged === previous.flagged && score > previous.anomaly_score)) {
+      byDevice.set(device.device_id, device);
+    }
+  }
+
+  const count = devices.length;
+  distribution.setAttribute(
+    'aria-label',
+    `${count} readings: ${bands.map((band) => `${band.count} ${band.label}`).join(', ')}`,
+  );
+  distribution.querySelectorAll('.risk-segment').forEach((segment, index) => {
+    const percentage = count ? (100 * bands[index].count) / count : 0;
+    segment.style.width = `${percentage}%`;
+    segment.title = `${bands[index].label}: ${bands[index].count} readings`;
+  });
+  legend.replaceChildren();
+  for (const band of bands) {
+    const item = document.createElement('span');
+    item.className = 'risk-legend-item';
+    const swatch = document.createElement('i');
+    swatch.className = band.className;
+    const label = document.createElement('span');
+    label.textContent = band.label;
+    const value = document.createElement('strong');
+    value.textContent = band.count;
+    item.append(swatch, label, value);
+    legend.append(item);
+  }
+
+  hotspotList.replaceChildren();
+  const rankedParameters = [...parameters.entries()]
+    .sort((left, right) => right[1].flagged - left[1].flagged
+      || right[1].maxScore - left[1].maxScore);
+  for (const [name, metrics] of rankedParameters.slice(0, 5)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'hotspot-row';
+    button.title = `Filter device evidence to ${name}`;
+    const heading = document.createElement('span');
+    heading.className = 'hotspot-name';
+    heading.textContent = name.replaceAll('_', ' ');
+    const bar = document.createElement('span');
+    bar.className = 'hotspot-track';
+    const fill = document.createElement('span');
+    fill.className = `hotspot-fill${metrics.flagged ? ' flagged' : ''}`;
+    fill.style.width = `${metrics.total ? (100 * metrics.flagged) / metrics.total : 0}%`;
+    bar.append(fill);
+    const value = document.createElement('strong');
+    value.textContent = `${metrics.flagged}/${metrics.total}`;
+    button.append(heading, bar, value);
+    button.addEventListener('click', () => {
+      $('#device-search').value = name;
+      renderDevices();
+      $('#lot-overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    hotspotList.append(button);
+  }
+  if (!rankedParameters.length) {
+    hotspotList.innerHTML = '<p class="empty-copy">No parameter readings were returned.</p>';
+  }
+
+  queue.replaceChildren();
+  const riskPriority = (device) => {
+    const direction = state.calibration?.direction === 'lower' ? -1 : 1;
+    const worseningDrift = (Number(device.predicted_drift_per_hour) || 0) * direction;
+    const safetySlope = Number(device.safety_slope) || 0;
+    const slopePriority = safetySlope > 0 ? worseningDrift / safetySlope : 0;
+    return Math.max((Number(device.anomaly_score) || 0) / 3.5, slopePriority);
+  };
+  const priorities = [...byDevice.values()]
+    .filter((device) => device.flagged)
+    .sort((left, right) => riskPriority(right) - riskPriority(left))
+    .slice(0, 4);
+  for (const device of priorities) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'queue-item';
+    const copy = document.createElement('span');
+    const identity = document.createElement('strong');
+    identity.textContent = device.device_id;
+    const detail = document.createElement('small');
+    detail.textContent = `${device.parameter.replaceAll('_', ' ')} · ${device.slope_flag ? 'drift limit exceeded' : 'anomaly score elevated'}`;
+    copy.append(identity, detail);
+    const score = document.createElement('span');
+    score.className = 'queue-score';
+    score.textContent = `RISK ${formatNumber(device.anomaly_score)}`;
+    score.title = `Prioritized by the larger of anomaly score / 3.5 or worsening drift / safety slope (${formatNumber(riskPriority(device))}× threshold)`;
+    button.append(copy, score);
+    button.addEventListener('click', () => showDevice(device));
+    queue.append(button);
+  }
+  if (!priorities.length) {
+    queue.innerHTML = '<p class="empty-copy">No devices are currently flagged for review.</p>';
+  }
+
+  const forecastMethods = [...new Set(devices.map((device) => device.forecast_method).filter(Boolean))];
+  const methodSummary = forecastMethods.length
+    ? forecastMethods.join(' · ')
+    : report.forecast_method || 'Forecast method not reported';
+  $('#forecast-method-note').textContent = `${methodSummary}. Forecasts are estimates; confirm against measured outcomes before release.`;
+  renderTrend();
+}
+
+function renderTrend() {
+  const container = $('#run-trend');
+  container.replaceChildren();
+  const runs = state.demoMode ? [] : (state.runs || []).slice(0, 8).reverse();
+  if (!runs.length) {
+    const empty = document.createElement('p');
+    empty.className = 'empty-copy';
+    empty.textContent = state.demoMode
+      ? 'Demo runs are not saved and are excluded from the production trend.'
+      : 'Saved production screenings will appear here.';
+    container.append(empty);
+    return;
+  }
+  for (const run of runs) {
+    const total = Number(run.summary?.total_devices) || 0;
+    const flagged = Number(run.summary?.flagged_devices) || 0;
+    const rate = total ? Math.min(100, (100 * flagged) / total) : 0;
+    const item = document.createElement('div');
+    item.className = 'trend-item';
+    const label = document.createElement('span');
+    label.textContent = `#${run.id}`;
+    const track = document.createElement('span');
+    track.className = 'trend-track';
+    const fill = document.createElement('span');
+    fill.className = `trend-fill${rate ? ' flagged' : ''}`;
+    fill.style.height = `${Math.max(rate, total ? 4 : 0)}%`;
+    track.append(fill);
+    track.title = `${flagged} of ${total} devices flagged (${formatNumber(rate)}%)`;
+    const value = document.createElement('strong');
+    value.textContent = `${formatNumber(rate)}%`;
+    item.append(label, track, value);
+    container.append(item);
+  }
+  $('#trend-caption').textContent = `${runs.length} SAVED RUN${runs.length === 1 ? '' : 'S'}`;
 }
 
 function renderDevices() {
@@ -212,6 +423,7 @@ function renderDevices() {
 
 function renderHistory(runs) {
   state.runs = runs || [];
+  renderTrend();
   const container = $('#run-history');
   container.replaceChildren();
   if (!state.runs.length) {
@@ -776,6 +988,7 @@ $('#demo-button').addEventListener('click', loadDemo);
 $('#device-filter').addEventListener('change', renderDevices);
 $('#device-search').addEventListener('input', renderDevices);
 $('#device-sort').addEventListener('change', renderDevices);
+renderIntelligence();
 $('#export-button').addEventListener('click', exportDevices);
 $('#ai-form').addEventListener('submit', askCopilot);
 $('#ai-clear').addEventListener('click', clearAiChat);
