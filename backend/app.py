@@ -24,10 +24,12 @@ from starlette.middleware.sessions import SessionMiddleware
 from starlette.requests import Request
 
 if __package__:
+    from .db_migrations import upgrade_database
     from . import storage
     from .anomaly_service import detect_anomalies, screen_devices, train_calibration
     from .settings import Settings
 else:
+    from db_migrations import upgrade_database
     import storage
     from anomaly_service import detect_anomalies, screen_devices, train_calibration
     from settings import Settings
@@ -268,6 +270,8 @@ def create_app(
         if not config.production:
             storage.initialize(database_path)
         else:
+            logger.info("Applying pending database migrations.")
+            upgrade_database(storage.database_url(database_path))
             storage.check_database(database_path)
         yield
 

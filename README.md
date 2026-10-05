@@ -197,7 +197,9 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
    settings and configure these values there. Otherwise create the Blueprint
    from this GitHub repository. The Blueprint requests a **Free** Oregon
    service, builds from the repository root using its top-level `Dockerfile`,
-   and disables automatic deploys so migrations can run before app deployment.
+   and automatically deploys pushes to the connected branch. The app applies
+   pending Alembic migrations on startup before accepting traffic; this does
+   not require Render shell access, a persistent disk, or a one-off job.
    If configuring an existing service manually, set **Root Directory** to
    blank/repository root and **Dockerfile Path** to `./Dockerfile`; the image
    build needs both `backend/` and `frontend/` in its build context.
@@ -217,7 +219,8 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
      create a new publishable key before deploying.
    - `AUTH_ALLOWED_EMAILS`: exact reviewer emails, comma-separated.
    - `WEB_CONCURRENCY`: `1` for the small free instance.
-3. Save changes and trigger a Render deploy. Render injects
+3. Save changes and trigger a Render deploy if one does not start
+   automatically. Render injects
    `RENDER_EXTERNAL_URL`; no Next.js server helper or OAuth callback URL is
    needed for this same-origin FastAPI dashboard. Verify
    `https://sih-anomaly-detection.onrender.com/health/ready` returns
@@ -232,7 +235,12 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
 4. In Render service settings, create a **Deploy Hook**. Treat its URL as a
    secret and add it to GitHub in the next section.
 
-### D. Enable migrations and controlled deploys
+### D. Optional GitHub Actions controlled deploys
+
+By default, Render deploys pushes directly and the app applies pending
+migrations during startup. The optional GitHub Actions deploy job can instead
+run migrations before triggering a Render deploy. To use that controlled path,
+disable automatic deploys in Render and configure:
 
 1. In GitHub **Settings → Environments**, create an environment named
    `production`.
@@ -249,17 +257,15 @@ See the current [Render free-instance limits](https://render.com/docs/free) and
    database role, and GitHub secrets are configured.
 5. Run the **Free-tier deployment** workflow from GitHub **Actions**, selecting
    `main`. It always runs tests and a dependency audit. When
-   `RENDER_DEPLOY_ENABLED` is `true`, it then applies the Alembic migration
-   using the app role, triggers Render, and probes database readiness. Later
-   pushes to `main` follow the same gated sequence.
+   `RENDER_DEPLOY_ENABLED` is `true`, it applies Alembic migrations, triggers
+   Render, and probes database readiness. Later pushes to `main` follow the
+   same gated sequence.
 
 If the dashboard reports `Could not load saved state: Request failed (500)` and
-the logs say a relation such as `calibration` does not exist, the app role can
-connect but the schema migration is missing (or the migration workflow used a
-different database URL). Confirm GitHub's production `DATABASE_URL` matches
-Render's, set `RENDER_DEPLOY_ENABLED` to `true`, and run the **Free-tier
-deployment** workflow. Do not rerun `supabase-bootstrap.sql` as a table fix; it
-only bootstraps the role.
+the schema is missing, startup applies the pending Alembic migrations
+automatically. Confirm the Render app role can create objects in the `public`
+schema and that the app is connected to the intended database. Do not rerun
+`supabase-bootstrap.sql` as a table fix; it only bootstraps the role.
 
 If the workflow fails, inspect its failed step before retrying. If migration
 fails, leave the old app deployed, correct the Supabase URL/role or migration

@@ -1,6 +1,7 @@
 import app as backend_app
 import pytest
 import storage
+from sqlalchemy import create_engine, text
 from app import create_app
 from fastapi.testclient import TestClient
 from settings import Settings
@@ -35,9 +36,13 @@ def test_dashboard_and_static_assets_are_served(client):
     assert client.get("/").headers["content-security-policy"].startswith("default-src 'self'")
 
 
-def test_readiness_fails_when_database_migrations_are_missing(tmp_path, monkeypatch):
+def test_production_startup_applies_missing_database_migrations(tmp_path):
     database = tmp_path / "unmigrated.sqlite3"
-    monkeypatch.setattr(storage, "check_database", lambda _: True)
+    storage.initialize(database)
+    engine = create_engine(storage.database_url(database))
+    with engine.begin() as connection:
+        connection.exec_driver_sql("DROP TABLE screening_runs")
+    engine.dispose()
     settings = Settings(
         environment="production",
         database_url="postgresql+psycopg://user:password@db.example.com/burnin",
@@ -53,12 +58,18 @@ def test_readiness_fails_when_database_migrations_are_missing(tmp_path, monkeypa
 
     with TestClient(create_app(database, settings)) as test_client:
         response = test_client.get("/health/ready")
+        assert storage.missing_tables(database) == []
 
-    assert response.status_code == 503
-    assert response.json()["detail"] == (
-        "Database schema is not initialized; missing tables: "
-        "calibration, decisions, screening, screening_runs. Apply Alembic migrations."
-    )
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+    engine = create_engine(storage.database_url(database))
+    with engine.connect() as connection:
+        revision = connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
+    engine.dispose()
+    assert revision == "0002_screening_run_history"
+
+    with TestClient(create_app(database, settings)) as test_client:
+        assert test_client.get("/health/ready").json() == {"status": "ready"}
 
 
 def test_saved_state_explains_missing_database_migrations(client, monkeypatch):

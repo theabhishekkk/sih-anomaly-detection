@@ -13,7 +13,10 @@ config = context.config
 if config.config_file_name:
     fileConfig(config.config_file_name)
 
-configured_database_url = os.getenv("DATABASE_URL", "").strip()
+configured_database_url = (
+    context.config.attributes.get("database_url")
+    or os.getenv("DATABASE_URL", "").strip()
+)
 if not configured_database_url:
     raise RuntimeError("DATABASE_URL must be configured to run database migrations.")
 database_url = normalize_database_url(configured_database_url)

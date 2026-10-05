@@ -87,6 +87,10 @@ def _database_url(db_path: str | Path | None) -> str:
     return f"sqlite+pysqlite:///{path.as_posix()}"
 
 
+def database_url(db_path: str | Path | None = None) -> str:
+    return _database_url(db_path)
+
+
 @lru_cache(maxsize=16)
 def _engine(database_url: str) -> Engine:
     options: dict[str, Any] = {"pool_pre_ping": True}
