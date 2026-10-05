@@ -144,5 +144,5 @@ ollama run qwen:0.5b
 **Abhishek Ranjan** & Team Code Catalysts
 *Pursuing MCA at Amity University Noida | Participant, Smart India Hackathon*
 
-[LinkedIn](https://www.linkedin.com/in/theabhishekkk) | [GitHub](https://github.com/theabhishekkk)
+[LinkedIn](https://www.linkedin.com/in/abhishek-ranjan-2ab9971a9/) | [GitHub](https://github.com/theabhishekkk)
 
