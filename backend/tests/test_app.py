@@ -42,6 +42,10 @@ def test_production_startup_applies_missing_database_migrations(tmp_path):
     engine = create_engine(storage.database_url(database))
     with engine.begin() as connection:
         connection.exec_driver_sql("DROP TABLE screening_runs")
+        connection.exec_driver_sql("DROP INDEX ix_decisions_device_id")
+        connection.exec_driver_sql("DROP INDEX ix_decisions_created_at")
+        connection.exec_driver_sql("ALTER TABLE calibration ADD COLUMN legacy_note TEXT")
+        connection.exec_driver_sql("CREATE TABLE unrelated_table (id INTEGER PRIMARY KEY)")
     engine.dispose()
     settings = Settings(
         environment="production",
@@ -70,6 +74,31 @@ def test_production_startup_applies_missing_database_migrations(tmp_path):
 
     with TestClient(create_app(database, settings)) as test_client:
         assert test_client.get("/health/ready").json() == {"status": "ready"}
+
+
+def test_production_startup_refuses_unrecognized_unversioned_schema(tmp_path):
+    database = tmp_path / "unknown.sqlite3"
+    engine = create_engine(storage.database_url(database))
+    with engine.begin() as connection:
+        connection.exec_driver_sql("CREATE TABLE unrelated_table (id INTEGER PRIMARY KEY)")
+    engine.dispose()
+    settings = Settings(
+        environment="production",
+        database_url="postgresql+psycopg://app:password@example.com/burnin",
+        session_secret="a-production-session-secret-that-is-at-least-32-bytes",
+        oidc_tenant_id="tenant-123",
+        oidc_client_id="client-123",
+        oidc_client_secret="oidc-secret",
+        oidc_allowed_emails=frozenset({"qa@example.com"}),
+        public_base_url="https://burnin.example.com",
+        ollama_model="",
+        ollama_url="http://127.0.0.1:11434",
+    )
+    application = create_app(database, settings)
+
+    with pytest.raises(RuntimeError, match="unversioned tables"):
+        with TestClient(application):
+            pass
 
 
 def test_saved_state_explains_missing_database_migrations(client, monkeypatch):

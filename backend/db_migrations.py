@@ -20,9 +20,9 @@ def _matches_metadata(engine, table_name: str) -> bool:
     table = metadata.tables[table_name]
     inspector = inspect(engine)
     columns = {column["name"] for column in inspector.get_columns(table_name)}
-    indexes = {index["name"] for index in inspector.get_indexes(table_name)}
-    expected_indexes = {index.name for index in table.indexes}
-    return columns == set(table.columns.keys()) and expected_indexes <= indexes
+    primary_key = inspector.get_pk_constraint(table_name).get("constrained_columns", [])
+    required_columns = set(table.columns.keys())
+    return required_columns <= columns and primary_key == ["id"]
 
 
 def _stamp_known_schema(config: Config, database_url: str) -> None:
@@ -51,7 +51,8 @@ def _stamp_known_schema(config: Config, database_url: str) -> None:
             return
         raise RuntimeError(
             "Database has unversioned tables that do not match a known application "
-            "schema; refusing to guess a migration baseline."
+            f"schema (tables found: {', '.join(sorted(existing_tables))}); "
+            "refusing to guess a migration baseline."
         )
     finally:
         engine.dispose()
