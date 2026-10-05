@@ -26,6 +26,10 @@
         <span class="signed-in-user" id="signed-in-user"></span>
         <button class="sign-out-button" id="sign-out" type="button" hidden>Sign out</button>
         <span class="live-indicator"><span></span> SCREENING SYSTEM</span>
+        <div class="clock-block" aria-label="Your local time">
+          <time id="local-clock" aria-live="off"></time>
+          <span id="local-date"></span>
+        </div>
         <span class="challenge-id">SIH 26170</span>
       </div>
     </header>
@@ -91,6 +95,19 @@
             </div>
           </article>
 
+          <article class="card intel-card chamber-card" aria-labelledby="chamber-title">
+            <div class="intel-card-heading">
+              <span class="metric-label" id="chamber-title">CHAMBER HEALTH</span>
+              <span id="chamber-status" class="chamber-status" data-status="unknown">NO TELEMETRY</span>
+            </div>
+            <p id="chamber-source" class="intel-copy">Live chamber health is unavailable until chamber sensors are connected.</p>
+            <div class="chamber-readings">
+              <div><span>TEMPERATURE</span><strong id="chamber-temperature">—</strong></div>
+              <div><span>RELATIVE HUMIDITY</span><strong id="chamber-humidity">—</strong></div>
+            </div>
+            <div class="chamber-cycle"><span>CYCLE</span><strong id="chamber-cycle">Waiting for chamber telemetry</strong></div>
+          </article>
+
           <article class="card intel-card">
             <div class="intel-card-heading">
               <span class="metric-label">ROBUST SCORE DISTRIBUTION</span>
@@ -154,6 +171,7 @@
               <h2>AI screening copilot</h2>
             </div>
             <span class="ai-status" id="ai-status">READY WHEN A LOT IS SCREENED</span>
+            <button class="ai-check-button" id="ai-check" type="button">Check AI</button>
           </div>
           <p class="muted">
             Chat with a free local Ollama model about the latest lot, forecasts, risk,
@@ -219,6 +237,9 @@
           </div>
           <button class="button button-primary button-full" id="calibrate-button" type="button">
             Calibrate reference lot
+          </button>
+          <button class="button button-secondary button-full built-in-button" id="builtin-calibration" type="button">
+            Use built-in calibration to test
           </button>
           <a class="template-link" href="/assets/reference-template.csv" download>
             Download CSV template

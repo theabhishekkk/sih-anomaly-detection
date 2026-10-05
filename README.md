@@ -16,9 +16,17 @@ backend\venv\Scripts\python -m uvicorn backend.app:app --host 127.0.0.1 --port 8
 
 Open <http://127.0.0.1:8000>. The API and dashboard are served from the same
 origin. The **Load interactive demo** button calibrates a generated known-good
-lot and screens a sample production lot; no sample data is silently treated as
-real screening evidence. The hosted demo is read-only and can be loaded without
+lot and screens 100 simulated devices; **Use built-in calibration to test**
+loads the sample baseline separately so you can try screening it yourself. Demo
+readings and chamber conditions are labeled simulated and are never saved as
+production evidence. The hosted demo is read-only and can be loaded without
 signing in; uploads and QA decisions still require an authorized account.
+Development defaults to the local `qwen3:4b` Ollama model; install Ollama and
+run `ollama pull qwen3:4b` if it is not already installed. The AI status
+indicator and **Check AI** button report whether Ollama and the configured model
+are reachable. The dashboard clock uses your browser's local time. Real chamber
+health remains unavailable until a physical chamber telemetry source is
+integrated; demo chamber values are illustrative only.
 
 Run the backend tests from the repository root:
 

@@ -85,6 +85,17 @@ def test_render_external_url_is_used_as_the_production_origin(monkeypatch):
     assert Settings.from_environment().public_base_url == "https://sih-burnin.onrender.com"
 
 
+def test_development_automatically_uses_the_local_ollama_default(monkeypatch):
+    monkeypatch.delenv("RENDER_EXTERNAL_URL", raising=False)
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+
+    assert Settings.from_environment().ollama_model == "qwen3:4b"
+
+    monkeypatch.setenv("OLLAMA_MODEL", "")
+    assert Settings.from_environment().ollama_model == ""
+
+
 def test_render_runtime_cannot_fall_back_to_development_mode(monkeypatch):
     monkeypatch.setenv("APP_ENV", "development")
     monkeypatch.setenv("RENDER_EXTERNAL_URL", "https://sih-burnin.onrender.com")
@@ -190,8 +201,18 @@ def test_supabase_auth_login_allowlist_and_bearer_protection(tmp_path, monkeypat
         demo = client.get("/api/demo")
         assert demo.status_code == 200
         assert demo.json()["calibration"]["device_count"] == 30
-        assert demo.json()["report"]["summary"]["total_devices"] == 11
+        assert demo.json()["report"]["summary"]["total_devices"] == 100
         assert demo.json()["report"]["summary"]["flagged_devices"] > 0
+        assert demo.json()["report"]["devices"][7]["device_id"] == "SIH-008"
+        assert demo.json()["chamber"]["status"] == "stable"
+        assert demo.json()["chamber"]["source"] == "simulated demo telemetry"
+        demo_screen = client.post("/api/demo/screen")
+        assert demo_screen.status_code == 200
+        assert demo_screen.json()["summary"]["total_devices"] == 100
+        assert demo_screen.json()["chamber"]["source"] == "simulated demo telemetry"
+        assert storage.load_snapshot(database, "calibration") is None
+        assert storage.load_snapshot(database, "screening") is None
+        assert storage.list_screening_runs(database) == []
         demo_briefing = client.post(
             "/api/demo/briefing",
             json={"question": "Which demo device needs review?"},
@@ -201,6 +222,10 @@ def test_supabase_auth_login_allowlist_and_bearer_protection(tmp_path, monkeypat
         assert "read-only demo" in demo_briefing.json()["source"]
         assert storage.load_snapshot(database, "calibration") is None
         assert storage.load_snapshot(database, "screening") is None
+        assert storage.list_screening_runs(database) == []
+        assert client.post(
+            "/api/demo/screen", json={"safety_slope": -1}
+        ).status_code == 400
 
         login = client.post(
             "/api/auth/login",
@@ -623,7 +648,11 @@ def test_local_ai_chat_uses_latest_screening_and_multiturn_context(
         "required": ["answer"],
         "additionalProperties": False,
     }
-    assert captured["options"] == {"num_predict": 220, "num_ctx": 4096}
+    assert captured["options"] == {
+        "num_predict": 120,
+        "num_ctx": 4096,
+        "temperature": 0,
+    }
 
 
 def test_ai_chat_requires_local_model_and_screening(tmp_path, monkeypatch):

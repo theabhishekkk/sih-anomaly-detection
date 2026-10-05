@@ -100,9 +100,57 @@ function busy(button, busyState, label) {
 
 function setFileName(input, target) {
   input.addEventListener('change', () => {
-    state.demoMode = false;
+    if (input.files?.length && state.demoMode) {
+      state.demoMode = false;
+      state.chamber = null;
+      if (state.calibration?.is_demo) renderCalibration(null);
+      state.aiMessages = [];
+      renderAiChat([]);
+      renderReport(null);
+      renderChamber(null);
+    }
     $(target).textContent = input.files?.[0]?.name || 'CSV · UTF-8';
   });
+}
+
+function updateClock() {
+  const now = new Date();
+  $('#local-clock').textContent = new Intl.DateTimeFormat(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now);
+  $('#local-date').textContent = new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    timeZoneName: 'short',
+  }).format(now);
+}
+
+function renderChamber(chamber) {
+  state.chamber = chamber || null;
+  const status = $('#chamber-status');
+  if (!chamber) {
+    status.textContent = 'NO TELEMETRY';
+    status.dataset.status = 'unknown';
+    $('#chamber-source').textContent =
+      'Live chamber health is unavailable until chamber sensors are connected. Device screening does not measure chamber conditions.';
+    $('#chamber-temperature').textContent = '—';
+    $('#chamber-humidity').textContent = '—';
+    $('#chamber-cycle').textContent = 'Waiting for chamber telemetry';
+    return;
+  }
+  status.textContent = chamber.status === 'stable' ? 'DEMO · NOMINAL' : 'DEMO · CHECK';
+  status.dataset.status = chamber.status === 'stable' ? 'stable' : 'warning';
+  $('#chamber-source').textContent =
+    'SIMULATED DEMO PROFILE · Illustrative values only; no physical chamber is connected.';
+  $('#chamber-temperature').textContent =
+    `${formatNumber(chamber.temperature_c)} °C / ${formatNumber(chamber.temperature_setpoint_c)} °C target`;
+  $('#chamber-humidity').textContent =
+    `${formatNumber(chamber.humidity_percent)}% / ${formatNumber(chamber.humidity_setpoint_percent)}% target`;
+  $('#chamber-cycle').textContent = chamber.cycle || 'Demo chamber profile';
 }
 
 function formatNumber(value) {
@@ -120,7 +168,7 @@ function renderCalibration(calibration) {
   $('#metric-calibration').textContent = 'Ready';
   const names = Object.keys(calibration.parameters || {});
   $('#calibration-foot').textContent =
-    `${calibration.device_count} references · ${names.length} parameter${names.length === 1 ? '' : 's'}`;
+    `${calibration.device_count} ${calibration.is_demo ? 'built-in demo ' : ''}references · ${names.length} parameter${names.length === 1 ? '' : 's'}`;
 }
 
 function renderReport(report, createdAt) {
@@ -169,9 +217,11 @@ function renderIntelligence() {
     $('#intel-reviewed').textContent = '—';
     $('#intel-review-rate').textContent = '—';
     $('#intel-parameters').textContent = '—';
+    renderChamber(null);
     distribution.setAttribute('aria-label', 'No screening readings yet');
     distribution.querySelectorAll('.risk-segment').forEach((segment) => {
       segment.style.width = '0%';
+      segment.removeAttribute('title');
     });
     legend.replaceChildren();
     hotspotList.innerHTML = '<p class="empty-copy">Screen a lot to compare parameter risk.</p>';
@@ -608,22 +658,39 @@ async function calibrate() {
       const slopeInput = $('#safety-slope').value.trim();
       if (slopeInput) form.append('safety_slope', slopeInput);
       result = await requestJson('/api/calibration/upload', { method: 'POST', body: form });
-    } else if (state.demoMode) {
-      result = await requestJson('/api/calibration', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          reference: createDemoReference(),
-          direction: $('#direction').value,
-        }),
-      });
     } else {
-      throw new Error('Choose a known-good reference CSV, or use the interactive demo.');
+      throw new Error('Choose a known-good reference CSV, or use the built-in calibration option.');
     }
     renderCalibration(result.calibration);
     setMessage(
       '#calibration-message',
       `Baseline saved for ${result.calibration.device_count} known-good devices.`,
+      'success',
+    );
+  } catch (error) {
+    setMessage('#calibration-message', error.message, 'error');
+  } finally {
+    busy(button, false);
+  }
+}
+
+async function useBuiltInCalibration() {
+  const button = $('#builtin-calibration');
+  busy(button, true, 'Loading sample calibration…');
+  setMessage('#calibration-message', 'Loading a built-in known-good reference cohort…');
+  try {
+    const result = await requestJson('/api/demo');
+    state.demoMode = true;
+    state.aiMessages = [];
+    renderAiChat([]);
+    renderCalibration({ ...result.calibration, is_demo: true });
+    renderReport(null);
+    renderChamber(result.chamber);
+    $('#reference-file').value = '';
+    $('#reference-file-name').textContent = 'Built-in sample cohort · 30 known-good devices';
+    setMessage(
+      '#calibration-message',
+      'Built-in calibration is ready. Analyze a lot to test the 100-device simulated screening; sample data is not saved.',
       'success',
     );
   } catch (error) {
@@ -646,19 +713,21 @@ async function screenLot() {
     const slopeInput = $('#safety-slope').value.trim();
     let result;
     if (file) {
+      state.demoMode = false;
+      renderChamber(null);
       const form = new FormData();
       form.append('file', file);
       if (slopeInput) form.append('safety_slope', slopeInput);
       result = await requestJson('/api/screen/upload', { method: 'POST', body: form });
     } else if (state.demoMode) {
-      const devices = createDemoProductionLot();
-      const payload = { devices };
+      const payload = {};
       if (slopeInput) payload.safety_slope = Number(slopeInput);
-      result = await requestJson('/api/screen', {
+      result = await requestJson('/api/demo/screen', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
+      renderChamber(result.chamber);
     } else {
       throw new Error('Choose a production-lot CSV, or use the interactive demo.');
     }
@@ -793,6 +862,20 @@ async function updateAiStatus() {
     status.textContent = 'OLLAMA OFFLINE · START THE LOCAL MODEL';
   } else {
     status.textContent = 'LOCAL AI NOT CONFIGURED';
+  }
+}
+
+async function checkAiStatus() {
+  const button = $('#ai-check');
+  busy(button, true, 'Checking…');
+  try {
+    await updateAiStatus();
+  } catch (error) {
+    const status = $('#ai-status');
+    status.dataset.status = 'unavailable';
+    status.textContent = `AI STATUS CHECK FAILED · ${error.message}`;
+  } finally {
+    busy(button, false);
   }
 }
 
@@ -959,9 +1042,10 @@ async function loadDemo() {
       ? `DEMO · LOCAL ${state.aiStatus.model}`
       : 'DEMO · READ-ONLY EVIDENCE';
     $('#reference-file-name').textContent = 'Demo reference cohort (read-only)';
-    $('#screening-file-name').textContent = 'Demo production lot (11 devices)';
-    renderCalibration(result.calibration);
+    $('#screening-file-name').textContent = 'Demo production lot (100 devices)';
+    renderCalibration({ ...result.calibration, is_demo: true });
     renderReport(result.report);
+    renderChamber(result.chamber);
     renderAudit([]);
     setMessage(
       '#calibration-message',
@@ -985,6 +1069,7 @@ setFileName($('#screening-file'), '#screening-file-name');
 $('#calibrate-button').addEventListener('click', calibrate);
 $('#screen-button').addEventListener('click', screenLot);
 $('#demo-button').addEventListener('click', loadDemo);
+$('#builtin-calibration').addEventListener('click', useBuiltInCalibration);
 $('#device-filter').addEventListener('change', renderDevices);
 $('#device-search').addEventListener('input', renderDevices);
 $('#device-sort').addEventListener('change', renderDevices);
@@ -992,6 +1077,7 @@ renderIntelligence();
 $('#export-button').addEventListener('click', exportDevices);
 $('#ai-form').addEventListener('submit', askCopilot);
 $('#ai-clear').addEventListener('click', clearAiChat);
+$('#ai-check').addEventListener('click', checkAiStatus);
 document.querySelectorAll('.ai-suggestion').forEach((button) => {
   button.addEventListener('click', () => {
     $('#ai-question').value = button.dataset.question || '';
@@ -1008,3 +1094,5 @@ $('#device-dialog').addEventListener('click', (event) => {
 });
 
 initializeAuthentication();
+updateClock();
+window.setInterval(updateClock, 1000);

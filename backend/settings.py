@@ -79,7 +79,10 @@ class Settings:
                 os.getenv("PUBLIC_BASE_URL", "").strip()
                 or os.getenv("RENDER_EXTERNAL_URL", "").strip()
             ).rstrip("/"),
-            ollama_model=os.getenv("OLLAMA_MODEL", "").strip(),
+            ollama_model=os.getenv(
+                "OLLAMA_MODEL",
+                "qwen3:4b" if environment == "development" else "",
+            ).strip(),
             ollama_url=os.getenv("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/"),
             supabase_url=os.getenv("SUPABASE_URL", "").strip().rstrip("/"),
             supabase_publishable_key=os.getenv("SUPABASE_PUBLISHABLE_KEY", "").strip(),
