@@ -61,6 +61,19 @@ def test_readiness_fails_when_database_migrations_are_missing(tmp_path, monkeypa
     )
 
 
+def test_saved_state_explains_missing_database_migrations(client, monkeypatch):
+    monkeypatch.setattr(storage, "missing_tables", lambda _: ["screening_runs"])
+
+    response = client.get("/api/state")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "Saved state is unavailable; database migrations are required. "
+        "Missing tables: screening_runs. "
+        "Apply Alembic migrations before using saved screenings."
+    )
+
+
 def test_production_requires_secure_postgres_and_allowlisted_oidc():
     settings = Settings(
         environment="production",

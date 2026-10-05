@@ -346,6 +346,9 @@ tbody tr:hover { background: rgba(75, 214, 196, .035); }
 .device-dialog::backdrop { background: rgba(3, 7, 14, .76); backdrop-filter: blur(3px); }
 .dialog-heading { display: flex; align-items: start; justify-content: space-between; margin-bottom: 16px; }
 .dialog-heading .eyebrow { margin-bottom: 5px; }
+.device-review-status { margin: 0 0 12px; padding: 11px 13px; border: 1px solid rgba(255, 115, 125, .35); border-radius: 9px; background: rgba(255, 115, 125, .09); color: #ff9ba2; font-size: 11px; line-height: 1.55; }
+.device-review-status.passed { border-color: rgba(75, 214, 196, .3); background: rgba(75, 214, 196, .08); color: var(--teal); }
+.decision-readonly-note { margin: 16px 0 0; padding: 11px 13px; border: 1px solid var(--border); border-radius: 9px; color: var(--muted); font-size: 11px; line-height: 1.55; }
 .icon-button { width: 32px; height: 32px; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; font-size: 22px; line-height: 1; }
 .chart-container { min-height: 210px; padding: 8px; border: 1px solid rgba(137, 164, 197, .12); border-radius: 9px; background: rgba(8, 15, 26, .48); }
 .chart-container svg { display: block; width: 100%; height: 200px; overflow: visible; }

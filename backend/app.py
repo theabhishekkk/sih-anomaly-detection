@@ -545,6 +545,24 @@ def create_app(
 
     @application.get("/api/state")
     def get_state() -> dict[str, Any]:
+        try:
+            missing_tables = storage.missing_tables(database_path)
+        except SQLAlchemyError as error:
+            logger.exception("Saved-state schema check failed.")
+            raise HTTPException(
+                status_code=503,
+                detail="Saved state is unavailable because the database cannot be checked.",
+            ) from error
+        if missing_tables:
+            logger.error("Saved-state database schema is missing tables: %s", missing_tables)
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Saved state is unavailable; database migrations are required. "
+                    f"Missing tables: {', '.join(missing_tables)}. "
+                    "Apply Alembic migrations before using saved screenings."
+                ),
+            )
         calibration = storage.load_snapshot(database_path, "calibration")
         screening = storage.load_snapshot(database_path, "screening")
         return {

@@ -946,6 +946,14 @@ function renderChart(device) {
 async function showDevice(device) {
   state.selected = device;
   $('#dialog-title').textContent = `${device.device_id} · ${device.parameter}`;
+  const reviewStatus = $('#device-review-status');
+  const reviewReasons = [];
+  if (device.anomaly_flag) reviewReasons.push('robust anomaly threshold exceeded');
+  if (device.slope_flag) reviewReasons.push('forecast drift exceeds the safety slope');
+  reviewStatus.classList.toggle('passed', !device.flagged);
+  reviewStatus.textContent = device.flagged
+    ? `REQUIRES REVIEW · ${reviewReasons.join(' · ') || 'screening threshold exceeded'}`
+    : 'PASS · No configured anomaly or forecast-drift threshold was exceeded.';
   $('#device-explanation').textContent = device.reason;
   $('#explanation-source').textContent = 'EVIDENCE-BASED SHAP';
   setMessage('#decision-message', '');
@@ -986,6 +994,11 @@ async function showDevice(device) {
   }
   $('#device-dialog').showModal();
   $('.decision-form').hidden = state.demoMode;
+  const readOnlyNote = $('#decision-readonly-note');
+  readOnlyNote.hidden = !state.demoMode;
+  readOnlyNote.textContent = state.demoMode
+    ? 'Interactive demo evidence is simulated and read-only. Sign in with an authorized QA account and screen a production lot to record an auditable decision.'
+    : '';
   if (state.demoMode) return;
   try {
     const result = await requestJson(`/api/devices/${encodeURIComponent(device.device_id)}/explain`);
